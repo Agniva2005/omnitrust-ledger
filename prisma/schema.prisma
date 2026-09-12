@@ -13,3 +13,12 @@ datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
+
+/// role: "ADMIN" | "SIGNER" | "VERIFIER" | "VIEWER" (see lib/auth/rbac.ts)
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         String
+  createdAt    DateTime @default(now())
+}

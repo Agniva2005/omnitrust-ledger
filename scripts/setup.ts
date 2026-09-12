@@ -2,13 +2,20 @@ import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { prismaCli } from "../lib/prisma-cli";
 
 const root = process.cwd();
 
-function run(command: string, args: string[]) {
-  console.log(`\n> ${command} ${args.join(" ")}`);
-  const binary = process.platform === "win32" ? `${command}.cmd` : command;
-  execFileSync(binary, args, { stdio: "inherit" });
+function prisma(args: string[]) {
+  console.log(`\n> prisma ${args.join(" ")}`);
+  prismaCli(args);
+}
+
+function tsxScript(file: string) {
+  console.log(`\n> tsx ${file}`);
+  execFileSync(process.execPath, [path.join(root, "node_modules", "tsx", "dist", "cli.mjs"), file], {
+    stdio: "inherit",
+  });
 }
 
 function ensureEnvFile() {
@@ -41,19 +48,15 @@ function ensureStorage() {
 
 ensureEnvFile();
 ensureStorage();
-run("npx", ["prisma", "generate"]);
+prisma(["generate"]);
 
 const migrationsDir = path.join(root, "prisma", "migrations");
 if (fs.existsSync(migrationsDir)) {
-  run("npx", ["prisma", "migrate", "deploy"]);
+  prisma(["migrate", "deploy"]);
 } else {
   console.log("\nNo migrations committed yet - skipping `prisma migrate deploy`.");
 }
 
-if (fs.existsSync(path.join(root, "prisma", "seed.ts"))) {
-  run("npx", ["tsx", "prisma/seed.ts"]);
-} else {
-  console.log("No prisma/seed.ts yet - skipping seed (lands in Phase 9).");
-}
+tsxScript("prisma/seed.ts");
 
 console.log("\nSetup complete. Start the app with: npm run dev");

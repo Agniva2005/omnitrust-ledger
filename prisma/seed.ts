@@ -1,9 +1,9 @@
-// Demo seed data. Grows with each phase; the full fixture set (root CA, three users,
-// certificates under all three algorithms, sample documents) lands in Phase 9.
 import { prisma } from "../lib/db";
+import { DEMO_PASSWORD, seedUsers } from "./fixtures";
 
 async function main() {
-  console.log("Seed: nothing to seed yet (no models before Phase 1).");
+  const users = await seedUsers();
+  console.log(`Seeded ${users.length} demo users (password: ${DEMO_PASSWORD}).`);
 }
 
 main()
