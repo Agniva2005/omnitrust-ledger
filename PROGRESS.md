@@ -224,6 +224,27 @@ Definition of Done — verified:
 - A test asserts the log never contains a password, a bcrypt hash, or a private key.
 - `npm test` 263 passed, `npm run build` clean.
 
+## Phase 8 — Benchmarking (complete)
+
+Done:
+
+- `scripts/benchmark.ts` (`npm run benchmark`, with `--iterations` / `--keygen-iterations` overrides): 200 timed sign and verify cycles per algorithm per payload size (1 KB and 1 MB), 5 key generations each, after 5 untimed warm-up iterations, timed with `process.hrtime.bigint()`. Reports mean, median, p95, min and max, plus signature, key and certificate sizes. Certificate sizes are the DER lengths of certificates this installation's CA actually issued, read from the database. The script asserts that each benchmarked signature really verifies, so it cannot end up timing an operation that quietly does nothing.
+- Results written to `public/benchmarks.json`, which is gitignored: a clone ships with **no** benchmark data rather than with someone else's numbers presented as yours. The `/benchmarks` page renders that file and, when it is missing, says so and tells you to run the benchmark.
+- `/benchmarks` page: sizes table, per-payload timing tables with bars relative to the slowest algorithm in each column, and a key-generation table. Every figure comes from the JSON.
+- Tests: 266 passing. `tests/crypto/benchmark-output.test.ts` checks the file's shape matches what the page reads, that signature sizes match the algorithms' specifications, that the statistics are internally consistent (min ≤ median ≤ p95 ≤ max, all positive), and that the caveat note below is actually present.
+
+Measured on this machine (AMD Ryzen 7 8840HS, Node 24.14.0), 1 KB payload:
+
+| Algorithm | Sign (median) | Verify (median) | Signature | Certificate (DER) |
+| --- | --- | --- | --- | --- |
+| RSA-PSS 3072 | 2.041 ms | 0.114 ms | 384 bytes | 791 bytes |
+| ECDSA P-256 | 0.092 ms | 0.130 ms | 70 bytes | 459 bytes |
+| EdDSA Ed25519 | 0.800 ms | 2.888 ms | 64 bytes | 412 bytes |
+
+**The most important thing on that page is a caveat, not a number.** The timings compare *implementations* as much as algorithms: RSA and ECDSA run in OpenSSL's native code via `node:crypto`, while Ed25519 runs in pure JavaScript via `@noble/ed25519`, which Section 1 mandates. A native Ed25519 is normally faster than both of the others, so the Ed25519 timings must be read as "this library on this runtime", not as a property of EdDSA. That note is carried in the JSON, rendered prominently on the page, and asserted by a test. The size columns are unaffected by this and are genuine algorithm properties.
+
+Two further honest observations surfaced by the data: sign and verify cost does not vary with document size, because the signed payload is always the 32-byte digest — document size shows up only in the hash column; and RSA's cost is asymmetric in the opposite direction to Ed25519's (slow to sign, fast to verify).
+
 ## Decisions log
 
 Decisions that Section 6 or the spec asks to be recorded, plus judgement calls made where the spec left room.
