@@ -13,6 +13,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "benchmark": "tsx scripts/benchmark.ts",
+    "export:signature": "tsx scripts/export-signature.ts",
     "check:boundary": "tsx scripts/check-crypto-boundary.ts"
   },
   "prisma": {

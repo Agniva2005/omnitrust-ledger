@@ -24,6 +24,7 @@ model User {
   documents    Document[]
   keyPairs     KeyPair[]
   certificates Certificate[]
+  signatures   Signature[]
 }
 
 /// Singleton, seeded once. `algorithm` is not in the spec's field list but is required:
@@ -73,6 +74,7 @@ model Certificate {
   status           String
   revokedAt        DateTime?
   revocationReason String?
+  signatures       Signature[]
 
   @@index([subjectUserId])
   @@index([status])
@@ -97,13 +99,32 @@ model Document {
 }
 
 model DocumentVersion {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   documentId    String
-  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document      Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
   versionNumber Int
   storagePath   String
   hash          String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime    @default(now())
+  signatures    Signature[]
 
   @@unique([documentId, versionNumber])
+}
+
+/// One signature per document version: the version's `hash` is the payload that was
+/// signed (see the decisions log in PROGRESS.md).
+model Signature {
+  id                String          @id @default(cuid())
+  documentVersionId String
+  documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  certificateId     String
+  certificate       Certificate     @relation(fields: [certificateId], references: [id])
+  algorithm         String
+  signatureBytes    Bytes
+  signedAt          DateTime        @default(now())
+  signedByUserId    String
+  signedBy          User            @relation(fields: [signedByUserId], references: [id])
+
+  @@unique([documentVersionId])
+  @@index([certificateId])
 }

@@ -9,8 +9,8 @@ Build log for OmniTrust Ledger, tracked against the phases in `CLAUDE.md` Sectio
 | 2 — Document management | Done | Upload, real SHA-256, AES-256-GCM blobs at rest, versioning, Figure 4 state machine; 84 tests |
 | 3 — Crypto orchestration | Done | RSA-PSS / ECDSA P-256 / Ed25519 providers + registry, boundary check enforced in CI; 146 tests |
 | 4 — PKI layer | Done | Self-signed local root CA, X.509 issuance under all three algorithms, validation, revocation; 197 tests |
-| 5 — Signing in document flow | Next | — |
-| 6 — Verification workflow | Not started | Check-in point |
+| 5 — Signing in document flow | Done | Signing via certificate picker; signatures verified outside the app with the OpenSSL CLI; 217 tests |
+| 6 — Verification workflow | Next | — |
 | 7 — Audit & monitoring | Not started | — |
 | 8 — Benchmarking | Not started | — |
 | 9 — Seed data & demo script | Not started | — |
@@ -151,6 +151,30 @@ Notable during this phase:
 - **Validation cross-checks the database against the certificate bytes.** If a row's serial number or expiry disagrees with the certificate it stores, that is reported as `CERTIFICATE_CHAIN_INVALID` — otherwise editing the DB row could silently change a validity window. Tested.
 - Reason precedence is documented and tested: a certificate that is both expired and revoked reports `CERTIFICATE_EXPIRED`, because Section 3 step 4 lists validity before revocation. Both failures still appear in the step list.
 
+## Phase 5 — Signing wired into the document flow (complete)
+
+Done:
+
+- `Signature` schema + migration (`20260912193302_add_signatures`), unique per document version.
+- `lib/documents/signing.ts` — `signDocument()` composes three layers and does no crypto itself: the PKI layer supplies the certificate and decrypts the key, the orchestrator produces the signature, the lifecycle validates the transition. The payload is the raw 32 bytes of the current version's SHA-256.
+- Preconditions enforced before signing: the capability, the certificate belongs to the actor, the certificate *validates* (so a revoked or expired certificate cannot be used to sign), the version is not already signed, and — an integrity precondition — the stored bytes still hash to the recorded hash, so a signature never attests to content that was never there.
+- Route: `POST /api/documents/[id]/sign`.
+- UI: a sign panel on the document detail page whose picker lists certificates, not algorithms (the certificate implies both algorithm and key), plus a signatures table showing algorithm, signature size, certificate serial, signer and timestamp. Lifecycle card shows the current state and the legal next states.
+- `scripts/export-signature.ts` (`npm run export:signature -- <documentId|filename>`) exports the plaintext, the signed digest, the raw signature, the certificate and the public key, then prints the exact OpenSSL command for that algorithm.
+- Tests: 217 passing; 20 in `tests/documents/signing.test.ts`.
+
+Definition of Done — verified, and verified from outside the app:
+
+- Signed three documents under all three algorithms over real HTTP: signature sizes 384 (RSA-PSS 3072), 70 (ECDSA P-256 DER) and 64 (Ed25519) bytes; all three documents ended at lifecycle state `STORED`.
+- **The hash recomputed outside the app matches**: `sha256sum` on the original file equals the `signedHash` the API reported, for all three.
+- **The signatures verify outside the app**, with the OpenSSL 3.2.4 CLI and no application code in the loop:
+  - RSA: `openssl dgst -sha256 -verify ... -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-1` → `Verified OK`
+  - ECDSA P-256: `openssl dgst -sha256 -verify ...` → `Verified OK`
+  - Ed25519: `openssl pkeyutl -verify -pubin -rawin ...` → `Signature Verified Successfully`
+  The public key in each case was extracted from the stored certificate with `openssl x509 -pubkey -noout`, so this exercises the certificate too, not just the raw key.
+- A test asserts the signature is over the raw 32 hash bytes and *not* over the 64-character hex string — the hex text does not verify.
+- `npm test` 217 passed, `npm run build` clean.
+
 ## Decisions log
 
 Decisions that Section 6 or the spec asks to be recorded, plus judgement calls made where the spec left room.
@@ -166,9 +190,9 @@ Decisions that Section 6 or the spec asks to be recorded, plus judgement calls m
 9. **Document blobs are encrypted at rest, which changes how blob tampering surfaces.** Section 3 requires encrypted blobs, so a flipped byte in a stored blob fails the AES-256-GCM authentication tag before any hash comparison can run. That failure is surfaced as `HASH_MISMATCH` (the Phase 6 reason code) with a detail line explaining that the stored bytes are not the bytes that were written — it is still genuine, byte-level tamper evidence, just detected one layer earlier. Phase 6 therefore tests tampering *twice*: a raw byte flip (caught by the GCM tag) and a validly re-encrypted substitution of different plaintext (caught by the hash comparison itself), so the hash-comparison path is exercised for real and not merely asserted.
 10. **Known dev-time advisories, accepted.** `npm audit` reports 7 findings, all in build/dev tooling and none in the app's request path: `@vitest/mocker` (test runner), `deepmerge-ts` via `@prisma/config` (Prisma CLI), and `postcss` 8.4.31 as a nested dependency of Next 15's build pipeline (the top-level `postcss` resolves to a patched 8.5.28). Every offered fix is a major upgrade that would break the pins above. To be restated in the README limitations section in Phase 10.
 
-## Next: Phase 5 — Wire signing into the document flow
+## Next: Phase 6 — Verification workflow
 
-- `Signature` schema + migration.
-- Sign action: pick a certificate (which implies algorithm and key), orchestrator signs the current document hash, store the `Signature` row, advance the lifecycle to `SIGNED` then `STORED`.
-- Sign UI: certificate picker plus the resulting signature metadata.
-- Verify that a hash recomputed outside the app matches what was stored and signed.
+- The exact eight-step Figure 8 sequence returning the structured `VerificationResult`.
+- Verify UI rendering the step checklist and an AUTHENTIC/INVALID badge with the reason.
+- The five required failure tests, against real crypto with no mocking: `HASH_MISMATCH`, `CERTIFICATE_EXPIRED`, `CERTIFICATE_REVOKED`, `SIGNATURE_INVALID`, and a cross-algorithm public-key substitution.
+- Plus the extra tamper case noted in decision 9: a validly re-encrypted substitution, so the hash comparison itself is exercised and not only the AES-GCM tag.
