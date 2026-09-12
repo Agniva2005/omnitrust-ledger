@@ -6,8 +6,8 @@ Build log for OmniTrust Ledger, tracked against the phases in `CLAUDE.md` Sectio
 | --- | --- | --- |
 | 0 — Scaffold | Done | Next 15 + TS + Tailwind 3 + Prisma/SQLite + Vitest; Section 3 folder map created with stubs |
 | 1 — Auth & RBAC | Done | bcrypt + JWT httpOnly cookie, capability-based RBAC, login page; 52 tests |
-| 2 — Document management | Next | — |
-| 3 — Crypto orchestration | Not started | Check-in point |
+| 2 — Document management | Done | Upload, real SHA-256, AES-256-GCM blobs at rest, versioning, Figure 4 state machine; 84 tests |
+| 3 — Crypto orchestration | Next | — |
 | 4 — PKI layer | Not started | — |
 | 5 — Signing in document flow | Not started | — |
 | 6 — Verification workflow | Not started | Check-in point |
@@ -63,6 +63,31 @@ Notable during this phase:
 - **Test database harness.** `tests/global-setup.ts` deletes `prisma/test.db` and runs `prisma migrate deploy` against a fresh file, so the suite never touches `prisma/dev.db`. It deliberately does *not* use `prisma db push --force-reset`: Prisma 6 guards that command against AI agents, and applying the committed migrations forward is both non-destructive and a better test, since it proves the migration history builds a working schema.
 - **Prisma CLI is invoked through `node` directly** (`lib/prisma-cli.ts`), not `npx`. Spawning the `npx.cmd` shim without a shell fails with `EINVAL` on Windows, and enabling the shell would concatenate arguments instead of escaping them.
 
+## Phase 2 — Document management (complete)
+
+Done:
+
+- `Document` / `DocumentVersion` schema + migration (`20260912...add_documents`), with `User.documents` back-relation and indexes on owner and current hash.
+- `lib/documents/lifecycle.ts` — the Figure 4 state machine as an explicit transition table with `canTransition` / `assertTransition` / `assertPath` / `nextStates` and two terminal states.
+- `lib/documents/storage.ts` — Secure Storage layer. Writes blobs to `storage/documents/<documentId>/v<n>.bin`, encrypted; makes no crypto decisions itself, only calls the Cryptographic layer. Includes path-containment checking so a malformed `storagePath` can never resolve outside the storage root.
+- `lib/documents/service.ts` — upload, duplicate/zero-byte/size validation, versioning, `recomputeVersionHash()` (which is verification step 6, deliberately uncached).
+- `lib/crypto/hash.ts` and `lib/crypto/symmetric.ts` — see the deviation note below.
+- Routes: `GET`/`POST /api/documents`, `GET /api/documents/[id]`, `POST /api/documents/[id]/versions`.
+- UI: documents list (real hashes and lifecycle state), upload form, document detail showing current state, the legal next states straight from the state machine, and per-version hashes.
+- Tests: 84 passing. New: `tests/documents/{lifecycle,storage,service}.test.ts`.
+
+Definition of Done — verified over real HTTP against `npm run dev`:
+
+- Uploaded `agreement.txt`; the app computed `e8a7cb0baa17015c0b2005b237be493c411888bb68609fbf657dd334553985b3`, which is byte-identical to what `sha256sum` reports for the same file outside the app.
+- The document appears in the list UI (checked in a browser, signed in as `signer@demo`) with that hash and status `HASHED`.
+- Section 6 edge cases: zero-byte upload → 400; duplicate bytes → 409 naming the existing document.
+- On-disk blob is 110 bytes for an 82-byte input (12-byte IV + 16-byte GCM tag + ciphertext) and contains none of the plaintext.
+- `npm test` 84 passed, `npm run build` clean.
+
+Deliberate deviation from phase ordering:
+
+- **`lib/crypto/hash.ts` and `lib/crypto/symmetric.ts` were created in Phase 2, not Phase 3.** Phase 2 requires SHA-256 on upload and Section 3 requires document blobs encrypted at rest, while Section 2 rule 2 forbids cryptographic primitives outside `/lib/crypto/`. Putting a `createHash` or `createCipheriv` call in `lib/documents/` would have violated the hard rule; adding these two files early satisfies both. The orchestrator and the three signature providers remain Phase 3 work.
+
 ## Decisions log
 
 Decisions that Section 6 or the spec asks to be recorded, plus judgement calls made where the spec left room.
@@ -73,13 +98,15 @@ Decisions that Section 6 or the spec asks to be recorded, plus judgement calls m
 4. **`zod` added** beyond the spec's dependency list, for API-boundary input validation only. No crypto or business logic in it.
 5. **shadcn/ui components are vendored by hand** rather than via the interactive `shadcn init`, which is how shadcn is designed to be consumed (copy-in, not a runtime dependency). Keeps the clean-clone path free of an interactive CLI step.
 6. **Tests run serially** (`fileParallelism: false`). Test suites share one SQLite file; serial execution avoids write-lock contention. Revisit if the suite gets slow.
-7. **Known dev-time advisories, accepted.** `npm audit` reports 7 findings, all in build/dev tooling and none in the app's request path: `@vitest/mocker` (test runner), `deepmerge-ts` via `@prisma/config` (Prisma CLI), and `postcss` 8.4.31 as a nested dependency of Next 15's build pipeline (the top-level `postcss` resolves to a patched 8.5.28). Every offered fix is a major upgrade that would break the pins above. To be restated in the README limitations section in Phase 10.
+7. **Section 6: signing an already-signed document is blocked, not auto-versioned.** Attempting to sign a version that already has a signature returns 409 with a message pointing at "upload a new version". Reason: a `DocumentVersion` is the unit that has exactly one signed hash, so allowing several signatures per version would make verification step 8 ("compare recomputed hash vs. the hash that was actually signed") ambiguous about *which* signature is authoritative. To sign again, upload a new version — the document goes `VERSIONED -> HASHED` and is signable once more. Phase 5 Phase DoD signs across the three algorithms on *different* documents, so nothing in the demo needs multi-signature support.
+8. **Section 6: duplicate uploads are rejected per owner, not globally.** Identical bytes from the same owner → 409 naming the existing document; identical bytes from a different owner are allowed, since two users legitimately holding the same contract is not an error.
+9. **Document blobs are encrypted at rest, which changes how blob tampering surfaces.** Section 3 requires encrypted blobs, so a flipped byte in a stored blob fails the AES-256-GCM authentication tag before any hash comparison can run. That failure is surfaced as `HASH_MISMATCH` (the Phase 6 reason code) with a detail line explaining that the stored bytes are not the bytes that were written — it is still genuine, byte-level tamper evidence, just detected one layer earlier. Phase 6 therefore tests tampering *twice*: a raw byte flip (caught by the GCM tag) and a validly re-encrypted substitution of different plaintext (caught by the hash comparison itself), so the hash-comparison path is exercised for real and not merely asserted.
+10. **Known dev-time advisories, accepted.** `npm audit` reports 7 findings, all in build/dev tooling and none in the app's request path: `@vitest/mocker` (test runner), `deepmerge-ts` via `@prisma/config` (Prisma CLI), and `postcss` 8.4.31 as a nested dependency of Next 15's build pipeline (the top-level `postcss` resolves to a patched 8.5.28). Every offered fix is a major upgrade that would break the pins above. To be restated in the README limitations section in Phase 10.
 
-## Next: Phase 2 — Document management (no crypto yet)
+## Next: Phase 3 — Cryptographic Orchestration Layer
 
-- `Document` / `DocumentVersion` schema + migration.
-- `lib/documents/lifecycle.ts`: the Figure 4 state machine with validated transitions.
-- `lib/documents/storage.ts`: blob write/read under `storage/documents/`.
-- `lib/documents/service.ts`: upload, SHA-256 on upload, versioning.
-- Multipart upload API + upload page, document list and detail pages.
-- Section 6 edge cases: zero-byte upload rejected, duplicate upload handled.
+- `lib/crypto/types.ts`: `Algorithm` union + `SignatureProvider` interface (`sign`, `verify`, `generateKeyPair`).
+- `providers/{rsa,ecdsa,eddsa}.ts`: RSA-PSS and ECDSA P-256 via `node:crypto`, Ed25519 via `@noble/ed25519`.
+- `lib/crypto/orchestrator.ts`: registry keyed by algorithm; adding a fourth algorithm must mean one new file + one registry line.
+- Unit tests per provider against independently known-correct vectors, not just round-trips (e.g. Ed25519 RFC 8032 vectors, signature lengths per spec).
+- `scripts/check-crypto-boundary.ts` + a test that fails if any algorithm-specific import appears outside `/lib/crypto/`.

@@ -8,9 +8,10 @@ import {
   verifySessionToken,
 } from "@/lib/auth/session";
 import { DEMO_PASSWORD, seedUsers } from "@/prisma/fixtures";
+import { resetDatabase } from "@/tests/helpers/db";
 
 beforeAll(async () => {
-  await prisma.user.deleteMany();
+  await resetDatabase();
   await seedUsers();
 });
 

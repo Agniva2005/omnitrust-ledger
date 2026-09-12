@@ -3,9 +3,10 @@ import { POST } from "@/app/api/auth/login/route";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { DEMO_PASSWORD, seedUsers } from "@/prisma/fixtures";
+import { resetDatabase } from "@/tests/helpers/db";
 
 beforeAll(async () => {
-  await prisma.user.deleteMany();
+  await resetDatabase();
   await seedUsers();
 });
 

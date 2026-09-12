@@ -16,9 +16,40 @@ datasource db {
 
 /// role: "ADMIN" | "SIGNER" | "VERIFIER" | "VIEWER" (see lib/auth/rbac.ts)
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String     @id @default(cuid())
+  email        String     @unique
   passwordHash String
   role         String
-  createdAt    DateTime @default(now())
+  createdAt    DateTime   @default(now())
+  documents    Document[]
+}
+
+/// status: document lifecycle state, Figure 4 (see lib/documents/lifecycle.ts)
+model Document {
+  id          String            @id @default(cuid())
+  ownerUserId String
+  owner       User              @relation(fields: [ownerUserId], references: [id])
+  filename    String
+  mimeType    String
+  storagePath String
+  currentHash String
+  status      String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  versions    DocumentVersion[]
+
+  @@index([ownerUserId])
+  @@index([currentHash])
+}
+
+model DocumentVersion {
+  id            String   @id @default(cuid())
+  documentId    String
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  storagePath   String
+  hash          String
+  createdAt     DateTime @default(now())
+
+  @@unique([documentId, versionNumber])
 }
