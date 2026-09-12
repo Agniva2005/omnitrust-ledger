@@ -45,7 +45,9 @@ export function IntegrityChecker({ totalEntries }: { totalEntries: number }) {
         <CardTitle>Integrity check</CardTitle>
         <CardDescription>
           Walks all {totalEntries} entries from the genesis hash, recomputing each entry hash from
-          its own fields and its predecessor&apos;s hash.
+          its own fields and its predecessor&apos;s hash. This makes the log tamper-<em>evident</em>,
+          not tamper-proof: someone with database access can still alter a row, and this check is
+          what surfaces that they did.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
