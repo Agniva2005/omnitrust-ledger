@@ -7,8 +7,8 @@ Build log for OmniTrust Ledger, tracked against the phases in `CLAUDE.md` Sectio
 | 0 — Scaffold | Done | Next 15 + TS + Tailwind 3 + Prisma/SQLite + Vitest; Section 3 folder map created with stubs |
 | 1 — Auth & RBAC | Done | bcrypt + JWT httpOnly cookie, capability-based RBAC, login page; 52 tests |
 | 2 — Document management | Done | Upload, real SHA-256, AES-256-GCM blobs at rest, versioning, Figure 4 state machine; 84 tests |
-| 3 — Crypto orchestration | Next | — |
-| 4 — PKI layer | Not started | — |
+| 3 — Crypto orchestration | Done | RSA-PSS / ECDSA P-256 / Ed25519 providers + registry, boundary check enforced in CI; 146 tests |
+| 4 — PKI layer | Next | — |
 | 5 — Signing in document flow | Not started | — |
 | 6 — Verification workflow | Not started | Check-in point |
 | 7 — Audit & monitoring | Not started | — |
@@ -87,6 +87,39 @@ Definition of Done — verified over real HTTP against `npm run dev`:
 Deliberate deviation from phase ordering:
 
 - **`lib/crypto/hash.ts` and `lib/crypto/symmetric.ts` were created in Phase 2, not Phase 3.** Phase 2 requires SHA-256 on upload and Section 3 requires document blobs encrypted at rest, while Section 2 rule 2 forbids cryptographic primitives outside `/lib/crypto/`. Putting a `createHash` or `createCipheriv` call in `lib/documents/` would have violated the hard rule; adding these two files early satisfies both. The orchestrator and the three signature providers remain Phase 3 work.
+
+## Phase 3 — Cryptographic Orchestration Layer (complete)
+
+Done:
+
+- `lib/crypto/types.ts` — `Algorithm` union (`RSA` | `ECDSA_P256` | `ED25519`), the `SignatureProvider` interface (`sign`, `verify`, `generateKeyPair` plus display metadata and WebCrypto parameters), and PEM helpers.
+- `lib/crypto/providers/rsa.ts` — RSASSA-PSS, 3072-bit modulus, SHA-256, digest-length salt, via `node:crypto`.
+- `lib/crypto/providers/ecdsa.ts` — ECDSA over NIST P-256 with SHA-256, DER-encoded, via `node:crypto`.
+- `lib/crypto/providers/eddsa.ts` — Ed25519 via `@noble/ed25519` (+ `@noble/hashes` for the required SHA-512), with RFC 8410 PKCS#8/SPKI wrappers so the rest of the app only ever handles PEM.
+- `lib/crypto/orchestrator.ts` — registry keyed by algorithm, `providerFor()`, and `sign`/`verify`/`generateKeyPair`/`describe`/`webCryptoParams`. **Adding a fourth algorithm is one new provider file plus one line in `REGISTRY`.** Nothing else in the codebase references a specific algorithm.
+- `scripts/check-crypto-boundary.ts` — scans `app/ lib/ components/ prisma/ scripts/`, excluding `lib/crypto/`, and reports any `@noble/*` import, any `@peculiar/x509` import outside `lib/{crypto,pki}`, and any `node:crypto` signature/cipher/digest symbol (including via a namespace import). Runnable as `npm run check:boundary` and enforced inside `npm test`.
+- Tests: 146 passing overall; 62 in `tests/crypto/`.
+
+Definition of Done — verified:
+
+- `npx vitest run tests/crypto` passes for all three algorithms.
+- The boundary check reports zero violations — **and the checker is itself tested**: four cases write a probe file into `lib/documents/` containing a forbidden import and assert it gets flagged, so the guard cannot silently pass by being broken.
+- `npm test` 146 passed, `npm run build` clean.
+
+Independent correctness, not just round-trips (Phase 3 DoD wording):
+
+- **Ed25519 is checked against the RFC 8032 section 7.1 Test 1 vector** — secret key `9d61b1…7f60`, public key `d75a98…511a`, empty message, signature `e55643…100b`. Before embedding the vector I confirmed it two ways: our provider reproduces it, and OpenSSL (`node:crypto`) independently produces the byte-identical signature from the same key. The suite also asserts our RFC 8410 PEM encoding is byte-identical to OpenSSL's own export, that OpenSSL verifies what `@noble` signs, and that `@noble` verifies what OpenSSL signs.
+- **ECDSA P-256 is cross-validated against `@noble/curves`** (added as a *dev*-dependency for exactly this): signatures our OpenSSL-backed provider produces verify under `@noble`, signatures `@noble` produces verify under ours, and generated public keys are asserted to lie on the curve.
+- **RSA-PSS has no second implementation available here, and the tests say so rather than overclaiming.** It is checked structurally (3072-bit modulus, exponent 65537, signature exactly 384 bytes) and through WebCrypto as a different API surface, including a check that the signature is genuinely PSS — verifying it as PKCS#1 v1.5 fails — and that a wrong salt length is rejected.
+- Signature shapes are asserted per spec: Ed25519 exactly 64 bytes, RSA exactly 384, ECDSA a well-formed DER `SEQUENCE` of two `INTEGER`s between 68 and 72 bytes with the declared length matching the actual.
+- Behavioural properties that distinguish the schemes are asserted too: RSA-PSS and ECDSA are randomised (two signatures over the same digest differ, both verify), Ed25519 is deterministic (byte-identical).
+- Every provider is tested to reject a flipped digest bit, a flipped signature bit, a truncated signature, and the wrong public key; and a cross-algorithm matrix asserts no signature ever verifies under a different algorithm.
+
+Design notes:
+
+- **What gets signed is the 32-byte SHA-256 digest of the document**, as Phase 5 specifies ("orchestrator signs the current document hash"). The RSA and ECDSA providers then apply their own SHA-256 to that digest because `node:crypto` offers no "sign a pre-computed digest" API without hand-rolling DigestInfo padding — which Section 2 rule 1 forbids. So the effective construction is `Sign(SHA-256(SHA-256(document)))` for RSA/ECDSA, and Ed25519 signs the digest directly (hashing with SHA-512 internally per RFC 8032). The interface stays uniform: every provider is handed the same 32 bytes.
+- **Providers expose WebCrypto parameters** (`keyImport` / `signing`) so the Phase 4 PKI layer can build and sign X.509 certificates without naming an algorithm itself, which is what keeps the boundary rule satisfiable rather than merely aspirational.
+- `orchestrator.sign`/`verify`/`generateKeyPair` are `async` so an unregistered algorithm *rejects* rather than throwing synchronously — one error path for callers. A test caught this.
 
 ## Decisions log
 
