@@ -245,6 +245,26 @@ Measured on this machine (AMD Ryzen 7 8840HS, Node 24.14.0), 1 KB payload:
 
 Two further honest observations surfaced by the data: sign and verify cost does not vary with document size, because the signed payload is always the 32-byte digest — document size shows up only in the hash column; and RSA's cost is asymmetric in the opposite direction to Ed25519's (slow to sign, fast to verify).
 
+## Phase 9 — Seed data & demo script (complete)
+
+Done:
+
+- `prisma/fixtures.ts` builds every fixture **through the real service layer** — uploads are genuinely hashed and encrypted, signatures are genuinely produced by the orchestrator, and the audit chain fills in as a side effect. Nothing is inserted pre-baked.
+- Seeded state: local root CA; four demo users; one ACTIVE certificate per algorithm for `signer@demo` plus one already-expired certificate (so the `CERTIFICATE_EXPIRED` path can be shown without waiting or editing the database mid-demo); five documents — one unsigned, three signed under the three algorithms, and one pre-tampered.
+- The pre-tampered document is signed normally and *then* has its stored blob replaced with **validly re-encrypted** different content (an invoice for 4,000 becomes 9,000). The AES-GCM tag therefore still passes and step 8's hash comparison is what catches it — the more instructive failure to demo.
+- The seed is idempotent: re-running finds existing fixtures by filename and leaves them alone.
+- `prisma/seed.ts` prints a summary and finishes by verifying the audit chain it just created.
+- `DEMO_SCRIPT.md`: 31 numbered steps in 12 parts, each with the URL, the action, the expected result and the report figure it demonstrates, plus presenter notes, an "if something goes wrong" table, and a closing section that runs the test suite and the boundary check in front of the audience.
+
+Definition of Done — verified by actually doing it:
+
+- **Clean-state run.** Moved `prisma/dev.db`, `storage/`, `.env` and `public/benchmarks.json` aside and ran `npm install`-equivalent state → `npm run setup` → `npm run dev`, exactly as a fresh clone would. Setup generated a new `.env` and master key, applied all five migrations, and seeded: 4 users, certificates under all three algorithms, five documents, a 17-entry audit chain reported intact.
+- `npm run setup` run twice: idempotent, no duplicates.
+- **Every claim in DEMO_SCRIPT.md was executed**: the three signed documents verify AUTHENTIC; signature sizes render as 384 / ~70 / 64 bytes; the pre-tampered invoice reports `INVALID` / `HASH_MISMATCH` with steps 1-6 passing and step 8 showing the two differing hashes; the unsigned document reports "not yet signed" rather than INVALID; the expired certificate shows `EXPIRED` / `CERTIFICATE_EXPIRED`; revoking the ECDSA certificate as ADMIN flips `board-minutes-ecdsa.txt` from `AUTHENTIC` to `INVALID` / `CERTIFICATE_REVOKED` **while steps 7 and 8 still pass**, which is the point of that moment; the audit log shows all seven action types and reports the chain intact; `/benchmarks` says "No measurements yet" before `npm run benchmark` and renders measured data after; the boundary check passes; and `npm run export:signature` plus OpenSSL independently verifies a seeded Ed25519 signature.
+- `npm test` 266 passed, `npm run build` clean.
+
+One design wart fixed while walking the script: the certificates **page** swept `ACTIVE -> EXPIRED` but the **API** did not, so the two disagreed about the expired certificate's status. `markExpiredCertificates()` moved from `lib/pki/validation.ts` into `lib/pki/certificates.ts` (it is a lifecycle mutation, not a validation read) and is now called by `listCertificates()`, so both paths agree. Moving it also avoided an import cycle between those two modules.
+
 ## Decisions log
 
 Decisions that Section 6 or the spec asks to be recorded, plus judgement calls made where the spec left room.

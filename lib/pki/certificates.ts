@@ -205,6 +205,10 @@ export async function revokeCertificate({
 
 export async function listCertificates(actor: Actor) {
   requireCapability(actor, "certificate:read");
+  // Sweep the Figure 6 ACTIVE -> EXPIRED transition here so the API and the page agree
+  // on what they report. Validation never depends on this having run: it always reads
+  // the certificate's own notBefore/notAfter.
+  await markExpiredCertificates();
   return prisma.certificate.findMany({
     orderBy: { issuedAt: "desc" },
     include: {
@@ -241,6 +245,28 @@ export async function signableCertificates(actor: Actor) {
     orderBy: { issuedAt: "desc" },
     include: { keyPair: true },
   });
+}
+
+/**
+ * Moves certificates whose window has closed from ACTIVE to EXPIRED (Figure 6).
+ * Validation does not depend on this having run: it always re-reads the certificate's
+ * own notBefore/notAfter.
+ */
+export async function markExpiredCertificates(at: Date = new Date()): Promise<number> {
+  const stale = await prisma.certificate.findMany({
+    where: { status: "ACTIVE", expiresAt: { lt: at } },
+  });
+
+  for (const certificate of stale) {
+    await prisma.certificate.update({
+      where: { id: certificate.id },
+      data: {
+        status: assertCertificateTransition(assertCertificateState(certificate.status), "EXPIRED"),
+      },
+    });
+  }
+
+  return stale.length;
 }
 
 export function parseCertificate(certPem: string): x509.X509Certificate {

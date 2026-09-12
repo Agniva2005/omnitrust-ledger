@@ -1,10 +1,8 @@
 // PKI layer: certificate validation. This is step 4 of the Figure 8 verification
 // workflow, kept separate so it can be exercised on its own.
 import type { Certificate } from "@prisma/client";
-import { prisma } from "@/lib/db";
 import { caCertificate, getRootCa } from "@/lib/pki/ca";
 import { parseCertificate } from "@/lib/pki/certificates";
-import { assertCertificateState, assertCertificateTransition } from "@/lib/pki/keys";
 
 export type CertificateFailureReason =
   | "CERTIFICATE_EXPIRED"
@@ -118,26 +116,4 @@ export async function validateCertificate(
   if (revoked && !reason) reason = "CERTIFICATE_REVOKED";
 
   return { valid: reason === undefined, reason, checks };
-}
-
-/**
- * Moves certificates whose window has closed from ACTIVE to EXPIRED (Figure 6).
- * Validation does not depend on this having run: it always re-reads the certificate's
- * own notBefore/notAfter.
- */
-export async function markExpiredCertificates(at: Date = new Date()): Promise<number> {
-  const stale = await prisma.certificate.findMany({
-    where: { status: "ACTIVE", expiresAt: { lt: at } },
-  });
-
-  for (const certificate of stale) {
-    await prisma.certificate.update({
-      where: { id: certificate.id },
-      data: {
-        status: assertCertificateTransition(assertCertificateState(certificate.status), "EXPIRED"),
-      },
-    });
-  }
-
-  return stale.length;
 }

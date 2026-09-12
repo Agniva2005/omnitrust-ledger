@@ -16,15 +16,13 @@ import { getSession } from "@/lib/auth/session";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 import { getRootCa } from "@/lib/pki/ca";
 import { listCertificates, parseCertificate } from "@/lib/pki/certificates";
-import { markExpiredCertificates, validateCertificate } from "@/lib/pki/validation";
+import { validateCertificate } from "@/lib/pki/validation";
 
 export const dynamic = "force-dynamic";
 
 export default async function CertificatesPage() {
   const actor = await getSession();
   if (!actor) redirect("/login");
-
-  await markExpiredCertificates();
 
   const ca = await getRootCa().catch(() => null);
   const certificates = await listCertificates(actor);

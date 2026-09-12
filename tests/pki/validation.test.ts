@@ -2,8 +2,12 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Actor } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { ensureRootCa } from "@/lib/pki/ca";
-import { issueCertificate, revokeCertificate } from "@/lib/pki/certificates";
-import { markExpiredCertificates, validateCertificate } from "@/lib/pki/validation";
+import {
+  issueCertificate,
+  markExpiredCertificates,
+  revokeCertificate,
+} from "@/lib/pki/certificates";
+import { validateCertificate } from "@/lib/pki/validation";
 import { seedUsers } from "@/prisma/fixtures";
 import { resetDatabase } from "@/tests/helpers/db";
 import { ensureMasterKey } from "@/tests/helpers/master-key";
