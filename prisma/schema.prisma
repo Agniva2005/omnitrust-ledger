@@ -1,0 +1,15 @@
+// OmniTrust Ledger data model.
+//
+// Status / role / algorithm columns are String, not enum: Prisma does not support
+// enums on SQLite. Allowed values are enforced as TypeScript unions in the module
+// that owns each concept (lib/auth/rbac.ts, lib/crypto/types.ts,
+// lib/documents/lifecycle.ts, lib/pki/keys.ts) and validated before any write.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
