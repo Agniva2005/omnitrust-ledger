@@ -16,12 +16,66 @@ datasource db {
 
 /// role: "ADMIN" | "SIGNER" | "VERIFIER" | "VIEWER" (see lib/auth/rbac.ts)
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
+  id           String        @id @default(cuid())
+  email        String        @unique
   passwordHash String
   role         String
-  createdAt    DateTime   @default(now())
+  createdAt    DateTime      @default(now())
   documents    Document[]
+  keyPairs     KeyPair[]
+  certificates Certificate[]
+}
+
+/// Singleton, seeded once. `algorithm` is not in the spec's field list but is required:
+/// the CA's signing algorithm must be resolved through the orchestrator rather than
+/// hard-coded anywhere, per Section 2 rule 2.
+model CertificateAuthority {
+  id                  String        @id @default(cuid())
+  name                String
+  algorithm           String
+  certPem             String
+  encryptedPrivateKey String
+  createdAt           DateTime      @default(now())
+  issued              Certificate[]
+}
+
+/// status: key lifecycle state, Figure 7 / NIST SP 800-57 (see lib/pki/keys.ts)
+model KeyPair {
+  id                  String        @id @default(cuid())
+  ownerUserId         String
+  owner               User          @relation(fields: [ownerUserId], references: [id])
+  algorithm           String
+  publicKeyPem        String
+  encryptedPrivateKey String
+  status              String
+  createdAt           DateTime      @default(now())
+  rotatedAt           DateTime?
+  revokedAt           DateTime?
+  certificates        Certificate[]
+
+  @@index([ownerUserId])
+}
+
+/// status: certificate lifecycle state, Figure 6 (see lib/pki/keys.ts)
+model Certificate {
+  id               String               @id @default(cuid())
+  keyPairId        String
+  keyPair          KeyPair              @relation(fields: [keyPairId], references: [id])
+  subjectUserId    String
+  subject          User                 @relation(fields: [subjectUserId], references: [id])
+  issuerCaId       String
+  issuerCa         CertificateAuthority @relation(fields: [issuerCaId], references: [id])
+  serialNumber     String               @unique
+  algorithm        String
+  certPem          String
+  issuedAt         DateTime             @default(now())
+  expiresAt        DateTime
+  status           String
+  revokedAt        DateTime?
+  revocationReason String?
+
+  @@index([subjectUserId])
+  @@index([status])
 }
 
 /// status: document lifecycle state, Figure 4 (see lib/documents/lifecycle.ts)

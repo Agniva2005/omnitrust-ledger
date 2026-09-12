@@ -8,8 +8,8 @@ Build log for OmniTrust Ledger, tracked against the phases in `CLAUDE.md` Sectio
 | 1 — Auth & RBAC | Done | bcrypt + JWT httpOnly cookie, capability-based RBAC, login page; 52 tests |
 | 2 — Document management | Done | Upload, real SHA-256, AES-256-GCM blobs at rest, versioning, Figure 4 state machine; 84 tests |
 | 3 — Crypto orchestration | Done | RSA-PSS / ECDSA P-256 / Ed25519 providers + registry, boundary check enforced in CI; 146 tests |
-| 4 — PKI layer | Next | — |
-| 5 — Signing in document flow | Not started | — |
+| 4 — PKI layer | Done | Self-signed local root CA, X.509 issuance under all three algorithms, validation, revocation; 197 tests |
+| 5 — Signing in document flow | Next | — |
 | 6 — Verification workflow | Not started | Check-in point |
 | 7 — Audit & monitoring | Not started | — |
 | 8 — Benchmarking | Not started | — |
@@ -121,6 +121,36 @@ Design notes:
 - **Providers expose WebCrypto parameters** (`keyImport` / `signing`) so the Phase 4 PKI layer can build and sign X.509 certificates without naming an algorithm itself, which is what keeps the boundary rule satisfiable rather than merely aspirational.
 - `orchestrator.sign`/`verify`/`generateKeyPair` are `async` so an unregistered algorithm *rejects* rather than throwing synchronously — one error path for callers. A test caught this.
 
+## Phase 4 — PKI Layer (complete)
+
+Done:
+
+- Schema + migration (`20260912192444_add_pki`): `CertificateAuthority`, `KeyPair`, `Certificate`, with back-relations on `User`.
+- `lib/crypto/keys.ts` — WebCrypto key import and the `@peculiar/x509` crypto-provider wiring. This lives in `lib/crypto` because `node:crypto`'s `webcrypto`/`subtle` are primitives the boundary rule keeps out of other layers; the PKI layer calls these helpers and never names an algorithm.
+- `lib/pki/ca.ts` — the self-signed local root CA: created once, idempotently, 10-year validity, `basicConstraints CA:true`, `keyUsage keyCertSign|cRLSign`, private key encrypted at rest.
+- `lib/pki/certificates.ts` — issuance (key pair from the orchestrator → X.509 signed by the CA → `KeyPair` + `Certificate` rows), revocation, listing, `publicKeyPemFromCertificate()` (verification step 5) and `signableCertificates()` for the Phase 5 picker.
+- `lib/pki/validation.ts` — chain / validity / revocation checks returning a structured result with a per-step list, plus `markExpiredCertificates()` for the Figure 6 `ACTIVE -> EXPIRED` transition.
+- `lib/pki/keys.ts` — the Figure 7 key lifecycle (`generated -> active -> rotated -> revoked -> retired`, NIST SP 800-57) and the Figure 6 certificate lifecycle as explicit transition tables.
+- Routes: `GET`/`POST /api/certificates`, `POST /api/certificates/[id]/revoke`.
+- UI: certificates page showing the root CA, an issue form driven by `orchestrator.describeAll()` (so a fourth algorithm would appear without touching the page), live per-certificate validation status, and a two-step revoke button visible only to ADMIN.
+- Seed now creates the root CA and one certificate per algorithm for `signer@demo`.
+- Tests: 197 passing; 51 in `tests/pki/`.
+
+Definition of Done — verified over real HTTP:
+
+- Certificates issued under all three algorithms for `signer@demo`: `ED25519`, `ECDSA_P256`, `RSA`, each `ACTIVE` with a unique 16-byte serial.
+- Revoked one as ADMIN → its validation flips to `CERTIFICATE_REVOKED` on the certificates page while the other two still report `valid`. The underlying `KeyPair` moves to `REVOKED` in the same transaction.
+- Section 6 RBAC over HTTP: a VIEWER gets 403 on both issue and revoke; a SIGNER cannot issue for another user; only ADMIN can revoke.
+- `npm test` 197 passed, `npm run build` clean.
+
+Notable during this phase:
+
+- **All three algorithms work through `@peculiar/x509` against a single ECDSA root CA**, verified by probe before building: certificate creation, chain verification, and the subject public key round-tripping back to a byte-identical PEM. Issued certificate sizes differ usefully for the Phase 8 benchmark table (RSA 713 bytes, ECDSA 382, Ed25519 334). `node-forge` was therefore never needed as the Section 1 fallback.
+- **The root CA is ECDSA P-256, not RSA.** The CA's algorithm is independent of its subjects' by design, and a P-256 issuer keeps the size differences between issued certificates attributable to the subject key rather than swamped by a 384-byte RSA signature on every certificate.
+- **`CertificateAuthority.algorithm` is an addition to the Section 4 field list.** Without it the CA's signing algorithm would have to be hard-coded somewhere, which Section 2 rule 2 forbids; storing it means the CA is resolved through the orchestrator like everything else.
+- **Validation cross-checks the database against the certificate bytes.** If a row's serial number or expiry disagrees with the certificate it stores, that is reported as `CERTIFICATE_CHAIN_INVALID` — otherwise editing the DB row could silently change a validity window. Tested.
+- Reason precedence is documented and tested: a certificate that is both expired and revoked reports `CERTIFICATE_EXPIRED`, because Section 3 step 4 lists validity before revocation. Both failures still appear in the step list.
+
 ## Decisions log
 
 Decisions that Section 6 or the spec asks to be recorded, plus judgement calls made where the spec left room.
@@ -136,11 +166,9 @@ Decisions that Section 6 or the spec asks to be recorded, plus judgement calls m
 9. **Document blobs are encrypted at rest, which changes how blob tampering surfaces.** Section 3 requires encrypted blobs, so a flipped byte in a stored blob fails the AES-256-GCM authentication tag before any hash comparison can run. That failure is surfaced as `HASH_MISMATCH` (the Phase 6 reason code) with a detail line explaining that the stored bytes are not the bytes that were written — it is still genuine, byte-level tamper evidence, just detected one layer earlier. Phase 6 therefore tests tampering *twice*: a raw byte flip (caught by the GCM tag) and a validly re-encrypted substitution of different plaintext (caught by the hash comparison itself), so the hash-comparison path is exercised for real and not merely asserted.
 10. **Known dev-time advisories, accepted.** `npm audit` reports 7 findings, all in build/dev tooling and none in the app's request path: `@vitest/mocker` (test runner), `deepmerge-ts` via `@prisma/config` (Prisma CLI), and `postcss` 8.4.31 as a nested dependency of Next 15's build pipeline (the top-level `postcss` resolves to a patched 8.5.28). Every offered fix is a major upgrade that would break the pins above. To be restated in the README limitations section in Phase 10.
 
-## Next: Phase 4 — PKI Layer
+## Next: Phase 5 — Wire signing into the document flow
 
-- `CertificateAuthority`, `KeyPair`, `Certificate` schema + migration.
-- `lib/pki/ca.ts`: generate the self-signed local root CA once, from the seed script.
-- `lib/pki/certificates.ts`: issue an X.509 certificate per algorithm (keypair from the orchestrator, certificate signed by the CA), and revoke.
-- `lib/pki/validation.ts`: chain to the local CA, validity period, revocation status.
-- `lib/pki/keys.ts`: key lifecycle states (Figure 7 / NIST SP 800-57).
-- Certificate management UI (list, issue, revoke) with ADMIN-only revocation.
+- `Signature` schema + migration.
+- Sign action: pick a certificate (which implies algorithm and key), orchestrator signs the current document hash, store the `Signature` row, advance the lifecycle to `SIGNED` then `STORED`.
+- Sign UI: certificate picker plus the resulting signature metadata.
+- Verify that a hash recomputed outside the app matches what was stored and signed.
