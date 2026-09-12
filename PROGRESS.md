@@ -136,10 +136,11 @@ Decisions that Section 6 or the spec asks to be recorded, plus judgement calls m
 9. **Document blobs are encrypted at rest, which changes how blob tampering surfaces.** Section 3 requires encrypted blobs, so a flipped byte in a stored blob fails the AES-256-GCM authentication tag before any hash comparison can run. That failure is surfaced as `HASH_MISMATCH` (the Phase 6 reason code) with a detail line explaining that the stored bytes are not the bytes that were written — it is still genuine, byte-level tamper evidence, just detected one layer earlier. Phase 6 therefore tests tampering *twice*: a raw byte flip (caught by the GCM tag) and a validly re-encrypted substitution of different plaintext (caught by the hash comparison itself), so the hash-comparison path is exercised for real and not merely asserted.
 10. **Known dev-time advisories, accepted.** `npm audit` reports 7 findings, all in build/dev tooling and none in the app's request path: `@vitest/mocker` (test runner), `deepmerge-ts` via `@prisma/config` (Prisma CLI), and `postcss` 8.4.31 as a nested dependency of Next 15's build pipeline (the top-level `postcss` resolves to a patched 8.5.28). Every offered fix is a major upgrade that would break the pins above. To be restated in the README limitations section in Phase 10.
 
-## Next: Phase 3 — Cryptographic Orchestration Layer
+## Next: Phase 4 — PKI Layer
 
-- `lib/crypto/types.ts`: `Algorithm` union + `SignatureProvider` interface (`sign`, `verify`, `generateKeyPair`).
-- `providers/{rsa,ecdsa,eddsa}.ts`: RSA-PSS and ECDSA P-256 via `node:crypto`, Ed25519 via `@noble/ed25519`.
-- `lib/crypto/orchestrator.ts`: registry keyed by algorithm; adding a fourth algorithm must mean one new file + one registry line.
-- Unit tests per provider against independently known-correct vectors, not just round-trips (e.g. Ed25519 RFC 8032 vectors, signature lengths per spec).
-- `scripts/check-crypto-boundary.ts` + a test that fails if any algorithm-specific import appears outside `/lib/crypto/`.
+- `CertificateAuthority`, `KeyPair`, `Certificate` schema + migration.
+- `lib/pki/ca.ts`: generate the self-signed local root CA once, from the seed script.
+- `lib/pki/certificates.ts`: issue an X.509 certificate per algorithm (keypair from the orchestrator, certificate signed by the CA), and revoke.
+- `lib/pki/validation.ts`: chain to the local CA, validity period, revocation status.
+- `lib/pki/keys.ts`: key lifecycle states (Figure 7 / NIST SP 800-57).
+- Certificate management UI (list, issue, revoke) with ADMIN-only revocation.
