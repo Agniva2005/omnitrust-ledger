@@ -280,8 +280,37 @@ Decisions that Section 6 or the spec asks to be recorded, plus judgement calls m
 9. **Document blobs are encrypted at rest, which changes how blob tampering surfaces.** Section 3 requires encrypted blobs, so a flipped byte in a stored blob fails the AES-256-GCM authentication tag before any hash comparison can run. That failure is surfaced as `HASH_MISMATCH` (the Phase 6 reason code) with a detail line explaining that the stored bytes are not the bytes that were written — it is still genuine, byte-level tamper evidence, just detected one layer earlier. Phase 6 therefore tests tampering *twice*: a raw byte flip (caught by the GCM tag) and a validly re-encrypted substitution of different plaintext (caught by the hash comparison itself), so the hash-comparison path is exercised for real and not merely asserted.
 10. **Known dev-time advisories, accepted.** `npm audit` reports 7 findings, all in build/dev tooling and none in the app's request path: `@vitest/mocker` (test runner), `deepmerge-ts` via `@prisma/config` (Prisma CLI), and `postcss` 8.4.31 as a nested dependency of Next 15's build pipeline (the top-level `postcss` resolves to a patched 8.5.28). Every offered fix is a major upgrade that would break the pins above. To be restated in the README limitations section in Phase 10.
 
-## Next: Phase 8 — Benchmarking
+## Phase 10 — Polish & documentation (complete)
 
-- `scripts/benchmark.ts`: N sign+verify cycles per algorithm across a couple of payload sizes, timed with `process.hrtime.bigint()`, reporting mean/median/p95 plus signature and certificate sizes.
-- Results written to a JSON file, rendered on a `/benchmarks` page read from that file.
-- Label the machine and environment, and state that absolute numbers are environment-dependent — the cross-algorithm comparison is the point.
+Done:
+
+- `README.md`: quickstart, demo accounts, a claim-to-evidence table, the architecture and its enforced boundary, all three lifecycles, the eight-step verification workflow, the cryptography table, every command, environment variables, what the tests actually cover, and the project layout.
+- **A long, specific limitations section** rather than a one-line disclaimer — grouped into PKI (self-signed root, no CRL or OCSP, one-level chain, no renewal), key management (master key in a local file, no operator workflow for rotation), application security (no rate limiting, no CSRF tokens, no server-side session revocation, `secure` cookie only in production builds, shared demo password, no MFA), and data/operations (single-process audit serialisation, no retention policy, no backups, and the log being tamper-*evident* rather than tamper-proof). The known dev-tooling advisories are listed rather than quietly ignored.
+- Home page rewritten: it no longer says "Scaffold only (Phase 0)". It reads the algorithm list from the orchestrator's registry at render time, so it demonstrates the extensibility claim rather than restating it, and lists the seven layers against their real folders.
+- UI copy audited for overstatement. Every security claim in the interface was checked against what the code does: the demo footer appears on every page, the certificates page states the CA is trusted by nothing outside the app, and the audit page now says explicitly that the log is tamper-*evident*, not tamper-proof.
+- `npm run lint` passes clean.
+
+Definition of Done — verified:
+
+- Final clean-state acceptance run: moved the database and storage aside, ran `npm run setup` then `npm run dev`, and checked every document from a logged-out start. The three signed documents verify `AUTHENTIC`, the pre-tampered invoice reports `INVALID` / `HASH_MISMATCH`, and the unsigned draft reports "not signed" rather than invalid.
+- Home page renders the three algorithms and their signature sizes straight from the registry, with the demo warning visible.
+- `npm test` 266 passed, `npm run build` clean, `npm run lint` clean.
+
+## Status: all phases complete
+
+Every phase in CLAUDE.md Section 5 is done, with its Definition of Done verified by
+running it rather than by inspection. The whole-project definition from Section 0 — clone,
+three commands, then follow `DEMO_SCRIPT.md` to sign under three algorithms, verify,
+watch a tampered document be rejected with a specific reason, revoke a certificate and
+watch verification fail afterwards, and view the audit log and a real benchmark table —
+was walked end to end from a clean state.
+
+Independent corroboration, none of it relying on this codebase agreeing with itself:
+
+- Ed25519 matches the RFC 8032 Test 1 vector and cross-signs with OpenSSL.
+- ECDSA P-256 cross-validates against `@noble/curves`.
+- Stored signatures under all three algorithms verify with the OpenSSL CLI, using the
+  public key extracted from the stored certificate (`npm run export:signature`).
+- Document hashes match `sha256sum` computed outside the application.
+- The architectural boundary is enforced by a checker that is itself tested against probe
+  files it must reject.
