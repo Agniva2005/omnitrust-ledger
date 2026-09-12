@@ -1,6 +1,7 @@
 // Document Management layer: upload, hashing, versioning, lifecycle bookkeeping.
 import type { Document, DocumentVersion } from "@prisma/client";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/api";
+import { appendAuditEntry } from "@/lib/audit/log";
 import { requireCapability, type Actor } from "@/lib/auth/rbac";
 import { sha256Hex } from "@/lib/crypto/hash";
 import {
@@ -74,7 +75,25 @@ export async function uploadDocument(input: UploadInput): Promise<Document> {
     data: { documentId: document.id, versionNumber: 1, storagePath, hash },
   });
 
-  return prisma.document.update({ where: { id: document.id }, data: { storagePath } });
+  const created = await prisma.document.update({
+    where: { id: document.id },
+    data: { storagePath },
+  });
+
+  await appendAuditEntry({
+    actorUserId: input.actor.userId,
+    action: "DOCUMENT_UPLOADED",
+    targetType: "Document",
+    targetId: created.id,
+    metadata: {
+      filename: created.filename,
+      hash,
+      byteLength: input.bytes.byteLength,
+      status: created.status,
+    },
+  });
+
+  return created;
 }
 
 /**
@@ -113,7 +132,7 @@ export async function addDocumentVersion(
     data: { documentId, versionNumber, storagePath, hash },
   });
 
-  return prisma.document.update({
+  const updated = await prisma.document.update({
     where: { id: documentId },
     data: {
       storagePath,
@@ -121,6 +140,16 @@ export async function addDocumentVersion(
       status: assertPath(["VERSIONED", "HASHED"]),
     },
   });
+
+  await appendAuditEntry({
+    actorUserId: actor.userId,
+    action: "DOCUMENT_VERSION_ADDED",
+    targetType: "Document",
+    targetId: documentId,
+    metadata: { versionNumber, hash, previousHash: document.currentHash },
+  });
+
+  return updated;
 }
 
 export async function setDocumentState(

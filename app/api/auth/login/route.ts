@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { errorResponse } from "@/lib/api";
+import { appendAuditEntry } from "@/lib/audit/log";
 import { authenticate, createSessionToken, sessionCookie } from "@/lib/auth/session";
 
 // Not z.string().email(): the demo accounts named in CLAUDE.md Section 5 Phase 9
@@ -21,8 +22,23 @@ export async function POST(request: Request) {
 
     const actor = await authenticate(parsed.data.email, parsed.data.password);
     if (!actor) {
+      // The attempted identifier is recorded; the submitted password never is.
+      await appendAuditEntry({
+        action: "USER_LOGIN_FAILED",
+        targetType: "User",
+        targetId: parsed.data.email,
+        metadata: { attemptedEmail: parsed.data.email },
+      });
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
     }
+
+    await appendAuditEntry({
+      actorUserId: actor.userId,
+      action: "USER_LOGIN",
+      targetType: "User",
+      targetId: actor.userId,
+      metadata: { email: actor.email, role: actor.role },
+    });
 
     const response = NextResponse.json({
       user: { id: actor.userId, email: actor.email, role: actor.role },

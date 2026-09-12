@@ -25,6 +25,26 @@ model User {
   keyPairs     KeyPair[]
   certificates Certificate[]
   signatures   Signature[]
+  auditEntries AuditLogEntry[]
+}
+
+/// Append-only hash chain: entryHash = SHA256(prevHash + canonical serialisation of
+/// this entry's own fields). See lib/audit/log.ts.
+model AuditLogEntry {
+  id           String   @id @default(cuid())
+  seq          Int      @unique
+  actorUserId  String?
+  actor        User?    @relation(fields: [actorUserId], references: [id])
+  action       String
+  targetType   String
+  targetId     String
+  metadataJson String
+  prevHash     String
+  entryHash    String
+  createdAt    DateTime @default(now())
+
+  @@index([action])
+  @@index([targetType, targetId])
 }
 
 /// Singleton, seeded once. `algorithm` is not in the spec's field list but is required:

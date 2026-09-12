@@ -4,6 +4,7 @@
 // records its own result even after an earlier step has failed, so the UI can show
 // which specific check went wrong rather than just a verdict.
 import { NotFoundError } from "@/lib/api";
+import { appendAuditEntry } from "@/lib/audit/log";
 import { requireCapability, type Actor } from "@/lib/auth/rbac";
 import { sha256Hex } from "@/lib/crypto/hash";
 import { orchestrator } from "@/lib/crypto/orchestrator";
@@ -238,9 +239,23 @@ export async function verifyDocument(
     }
   }
 
-  return {
-    outcome,
-    reason: outcome === "AUTHENTIC" ? undefined : firstByPrecedence(reasons),
-    steps,
-  };
+  const reason = outcome === "AUTHENTIC" ? undefined : firstByPrecedence(reasons);
+
+  // Both outcomes are audited, with the reason, per Phase 7.
+  await appendAuditEntry({
+    actorUserId: actor.userId,
+    action: "DOCUMENT_VERIFIED",
+    targetType: "Document",
+    targetId: document.id,
+    metadata: {
+      outcome,
+      reason: reason ?? null,
+      algorithm: signature.algorithm,
+      certificateSerial: certificate.serialNumber,
+      versionNumber: version.versionNumber,
+      failedSteps: steps.filter((step) => !step.passed).map((step) => step.step),
+    },
+  });
+
+  return { outcome, reason, steps };
 }

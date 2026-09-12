@@ -204,6 +204,26 @@ Confirmed in a real browser, not only in tests: signed in and ran verification o
 
 **Bug found and fixed during this phase:** `tailwind.config.ts` used `require("tailwindcss-animate")` inside an ES module, which Node 24 rejects with `ReferenceError: require is not defined` when compiling CSS against a cold `.next`. Every page failed to compile in dev until it was changed to a normal `import`. This would have broken the first `npm run dev` on a clean clone, which is exactly the Phase 9 acceptance path. (Found because `npm run build` and `npm run dev` were sharing `.next` and corrupted it — worth avoiding: stop the dev server before building.)
 
+## Phase 7 — Audit & monitoring (complete)
+
+Done:
+
+- `AuditLogEntry` schema + migration (`20260912195010_add_audit_log`) with a unique `seq`.
+- `lib/audit/log.ts` — `entryHash = SHA256(prevHash + canonical serialisation of the entry's own fields)`, exactly as Section 4 specifies, chained from a genesis hash of 32 zero bytes. Canonical serialisation fixes field order explicitly (rather than trusting object key order), escapes the separator so two different entries can never serialise identically, and sorts metadata keys.
+- `lib/audit/integrity.ts` — walks the chain recomputing every hash, reporting `SEQUENCE_GAP`, `PREV_HASH_MISMATCH` and `ENTRY_HASH_MISMATCH` with the sequence number and a human-readable detail. The next entry is expected to link to what the previous one *recomputes* to, not to the hash it happens to store, so one edit really does break the chain from that point onwards.
+- Audit entries emitted for: login, failed login (identifier only, never the password), upload, new version, sign, verify (both outcomes with the reason and the list of failed steps), certificate issue, certificate revoke, and key lifecycle transitions in both directions.
+- Routes: `POST /api/audit/verify`. UI: `/audit` with the entry table and a "Verify log integrity" button that reports the first break, its sequence number and what specifically went wrong.
+- Tests: 263 passing; 20 in `tests/audit/`.
+
+Definition of Done — verified:
+
+- A realistic demo sequence (issue → upload → sign → verify → tamper → verify → revoke → verify) produces a coherent trail: every required action type appears, all three verifications are recorded with their outcomes and reasons (`AUTHENTIC`, `HASH_MISMATCH`, `CERTIFICATE_REVOKED`), and actions are attributed to the user who performed them.
+- The integrity check passes on the untouched log and **identifies exactly where the chain breaks** when a row is edited directly in the database: the altered entry's sequence number, its id, and `ENTRY_HASH_MISMATCH`.
+- Four distinct tamper shapes are covered: altered metadata, altered action/target, an entry re-attributed to a *different real user* (so the foreign key still holds and only the chain gives it away), a deleted entry (`SEQUENCE_GAP`), and a "smart" tamper where the attacker recomputes `entryHash` but cannot fix the next entry's link (`PREV_HASH_MISMATCH` at the following sequence).
+- Section 6 concurrency: 25 simultaneous appends leave the chain valid with contiguous sequence numbers 1-25. Appends are serialised in-process and the unique `seq` constraint is the backstop, with a losing writer retrying against the new tail.
+- A test asserts the log never contains a password, a bcrypt hash, or a private key.
+- `npm test` 263 passed, `npm run build` clean.
+
 ## Decisions log
 
 Decisions that Section 6 or the spec asks to be recorded, plus judgement calls made where the spec left room.
@@ -219,10 +239,8 @@ Decisions that Section 6 or the spec asks to be recorded, plus judgement calls m
 9. **Document blobs are encrypted at rest, which changes how blob tampering surfaces.** Section 3 requires encrypted blobs, so a flipped byte in a stored blob fails the AES-256-GCM authentication tag before any hash comparison can run. That failure is surfaced as `HASH_MISMATCH` (the Phase 6 reason code) with a detail line explaining that the stored bytes are not the bytes that were written — it is still genuine, byte-level tamper evidence, just detected one layer earlier. Phase 6 therefore tests tampering *twice*: a raw byte flip (caught by the GCM tag) and a validly re-encrypted substitution of different plaintext (caught by the hash comparison itself), so the hash-comparison path is exercised for real and not merely asserted.
 10. **Known dev-time advisories, accepted.** `npm audit` reports 7 findings, all in build/dev tooling and none in the app's request path: `@vitest/mocker` (test runner), `deepmerge-ts` via `@prisma/config` (Prisma CLI), and `postcss` 8.4.31 as a nested dependency of Next 15's build pipeline (the top-level `postcss` resolves to a patched 8.5.28). Every offered fix is a major upgrade that would break the pins above. To be restated in the README limitations section in Phase 10.
 
-## Next: Phase 7 — Audit & monitoring
+## Next: Phase 8 — Benchmarking
 
-- `AuditLogEntry` schema with the `entryHash = SHA256(prevHash + serialised entry)` chain.
-- Emit entries for login, upload, sign, verify (both outcomes, with reason), certificate issue/revoke, and key lifecycle transitions.
-- Audit log UI with a "Verify Log Integrity" button that walks the chain.
-- A test that corrupts one stored entry and confirms the integrity check identifies exactly where the chain breaks.
-- Section 6: concurrent verifications must not corrupt the chain — append safely.
+- `scripts/benchmark.ts`: N sign+verify cycles per algorithm across a couple of payload sizes, timed with `process.hrtime.bigint()`, reporting mean/median/p95 plus signature and certificate sizes.
+- Results written to a JSON file, rendered on a `/benchmarks` page read from that file.
+- Label the machine and environment, and state that absolute numbers are environment-dependent — the cross-algorithm comparison is the point.

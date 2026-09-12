@@ -2,6 +2,7 @@
 import type { Certificate, KeyPair } from "@prisma/client";
 import * as x509 from "@peculiar/x509";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/api";
+import { appendAuditEntry } from "@/lib/audit/log";
 import { requireCapability, type Actor } from "@/lib/auth/rbac";
 import {
   configureCertificateProvider,
@@ -110,6 +111,29 @@ export async function issueCertificate(
     include: { keyPair: true },
   });
 
+  await appendAuditEntry({
+    actorUserId: input.actor.userId,
+    action: "CERTIFICATE_ISSUED",
+    targetType: "Certificate",
+    targetId: record.id,
+    metadata: {
+      algorithm,
+      serialNumber: record.serialNumber,
+      subjectUserId,
+      notBefore: notBefore.toISOString(),
+      notAfter: notAfter.toISOString(),
+      certificateByteLength: Buffer.from(record.certPem).length,
+    },
+  });
+
+  await appendAuditEntry({
+    actorUserId: input.actor.userId,
+    action: "KEY_LIFECYCLE_CHANGED",
+    targetType: "KeyPair",
+    targetId: keyPair.id,
+    metadata: { algorithm, from: "GENERATED", to: "ACTIVE" },
+  });
+
   return record;
 }
 
@@ -155,6 +179,26 @@ export async function revokeCertificate({
       data: { status: nextKeyState, revokedAt: new Date() },
     }),
   ]);
+
+  await appendAuditEntry({
+    actorUserId: actor.userId,
+    action: "CERTIFICATE_REVOKED",
+    targetType: "Certificate",
+    targetId: certificateId,
+    metadata: {
+      serialNumber: certificate.serialNumber,
+      algorithm: certificate.algorithm,
+      reason: updated.revocationReason,
+    },
+  });
+
+  await appendAuditEntry({
+    actorUserId: actor.userId,
+    action: "KEY_LIFECYCLE_CHANGED",
+    targetType: "KeyPair",
+    targetId: certificate.keyPairId,
+    metadata: { algorithm: certificate.algorithm, from: keyState, to: nextKeyState },
+  });
 
   return updated;
 }

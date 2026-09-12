@@ -5,6 +5,7 @@
 // the state transition.
 import type { Signature } from "@prisma/client";
 import { ConflictError, NotFoundError } from "@/lib/api";
+import { appendAuditEntry } from "@/lib/audit/log";
 import { requireCapability, type Actor } from "@/lib/auth/rbac";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 import { assertAlgorithm } from "@/lib/crypto/types";
@@ -96,6 +97,20 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
     where: { id: document.id },
     data: {
       status: assertPath([assertDocumentState(document.status), "SIGNED", "STORED"]),
+    },
+  });
+
+  await appendAuditEntry({
+    actorUserId: input.actor.userId,
+    action: "DOCUMENT_SIGNED",
+    targetType: "Document",
+    targetId: document.id,
+    metadata: {
+      algorithm,
+      certificateSerial: certificate.serialNumber,
+      signatureByteLength: signatureBytes.length,
+      signedHash: version.hash,
+      versionNumber: version.versionNumber,
     },
   });
 
