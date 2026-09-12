@@ -10,8 +10,8 @@ Build log for OmniTrust Ledger, tracked against the phases in `CLAUDE.md` Sectio
 | 3 — Crypto orchestration | Done | RSA-PSS / ECDSA P-256 / Ed25519 providers + registry, boundary check enforced in CI; 146 tests |
 | 4 — PKI layer | Done | Self-signed local root CA, X.509 issuance under all three algorithms, validation, revocation; 197 tests |
 | 5 — Signing in document flow | Done | Signing via certificate picker; signatures verified outside the app with the OpenSSL CLI; 217 tests |
-| 6 — Verification workflow | Next | — |
-| 7 — Audit & monitoring | Not started | — |
+| 6 — Verification workflow | Done | Exact 8-step Figure 8 sequence, structured result, step checklist UI; all five failure cases tested; 243 tests |
+| 7 — Audit & monitoring | Next | — |
 | 8 — Benchmarking | Not started | — |
 | 9 — Seed data & demo script | Not started | — |
 | 10 — Polish & documentation | Not started | — |
@@ -175,6 +175,35 @@ Definition of Done — verified, and verified from outside the app:
 - A test asserts the signature is over the raw 32 hash bytes and *not* over the 64-character hex string — the hex text does not verify.
 - `npm test` 217 passed, `npm run build` clean.
 
+## Phase 6 — Verification workflow (complete)
+
+Done:
+
+- `lib/documents/verification.ts` — the eight Figure 8 steps in the spec's exact order, returning the `VerificationResult` shape the spec declares (`outcome`, optional `reason`, `steps[]`). Every step records its own result even after an earlier one fails, so the checklist shows *which* check went wrong rather than stopping at the first problem. Step 4's sub-checks from the PKI layer are nested underneath it.
+- Reason precedence, documented in the code and tested: certificate problems outrank content problems, and `HASH_MISMATCH` outranks `SIGNATURE_INVALID` (when the bytes change the signature necessarily fails too, and "the document was altered" is the more precise diagnosis).
+- A document with no signature raises `DocumentNotSignedError` rather than being reported as `INVALID` — it is neither authentic nor invalid (Section 6). The route maps it to a 409 with `notSigned: true` and the UI renders a "Not yet signed" card.
+- On `AUTHENTIC`, the document advances `STORED -> VERIFIED` (Figure 4).
+- Route: `POST /api/documents/[id]/verify`. UI: `/documents/[id]/verify` with a step checklist, a large AUTHENTIC/INVALID badge, the machine-readable reason code, and a plain-English explanation of what that reason means.
+- Tests: 243 passing overall; 26 in `tests/verification/workflow.test.ts`.
+
+Definition of Done — all five required failure cases, none of them mocking crypto:
+
+| Required case | Test outcome |
+| --- | --- |
+| Flip one byte in a stored document blob | `HASH_MISMATCH` (step 6 fails: AES-GCM tag) |
+| Verify with an expired certificate | `CERTIFICATE_EXPIRED`, with steps 7 and 8 still passing — the cryptography is fine, only the window has closed |
+| Verify after revoking the signing certificate | `AUTHENTIC` before revocation, `CERTIFICATE_REVOKED` after, with the revocation reason in the step detail |
+| Corrupt the signature bytes | `SIGNATURE_INVALID` for all three algorithms, with step 8 still passing — the document was not touched |
+| Substitute a different algorithm's public key | `SIGNATURE_INVALID` for all three algorithms, and no crash even when the substituted key is structurally unusable |
+
+Plus the extra case promised in decision 9: replacing the blob with **validly re-encrypted different plaintext** (an attacker who also holds the storage key). The AES-GCM tag passes, step 6 succeeds, and **step 8's hash comparison is what catches it** — so the hash-comparison path is genuinely exercised, not merely asserted.
+
+Also verified: all eight numbered steps execute in order 1-8; verification is repeatable; the public key comes from the certificate and not the `KeyPair` row (corrupting that row does not affect the outcome); a VERIFIER can verify and a VIEWER cannot.
+
+Confirmed in a real browser, not only in tests: signed in and ran verification on a tampered document, and the UI rendered the full checklist with `INVALID` / `HASH_MISMATCH`, steps 1-5 passing and step 6 explaining that the bytes on disk are not the bytes that were written.
+
+**Bug found and fixed during this phase:** `tailwind.config.ts` used `require("tailwindcss-animate")` inside an ES module, which Node 24 rejects with `ReferenceError: require is not defined` when compiling CSS against a cold `.next`. Every page failed to compile in dev until it was changed to a normal `import`. This would have broken the first `npm run dev` on a clean clone, which is exactly the Phase 9 acceptance path. (Found because `npm run build` and `npm run dev` were sharing `.next` and corrupted it — worth avoiding: stop the dev server before building.)
+
 ## Decisions log
 
 Decisions that Section 6 or the spec asks to be recorded, plus judgement calls made where the spec left room.
@@ -190,9 +219,10 @@ Decisions that Section 6 or the spec asks to be recorded, plus judgement calls m
 9. **Document blobs are encrypted at rest, which changes how blob tampering surfaces.** Section 3 requires encrypted blobs, so a flipped byte in a stored blob fails the AES-256-GCM authentication tag before any hash comparison can run. That failure is surfaced as `HASH_MISMATCH` (the Phase 6 reason code) with a detail line explaining that the stored bytes are not the bytes that were written — it is still genuine, byte-level tamper evidence, just detected one layer earlier. Phase 6 therefore tests tampering *twice*: a raw byte flip (caught by the GCM tag) and a validly re-encrypted substitution of different plaintext (caught by the hash comparison itself), so the hash-comparison path is exercised for real and not merely asserted.
 10. **Known dev-time advisories, accepted.** `npm audit` reports 7 findings, all in build/dev tooling and none in the app's request path: `@vitest/mocker` (test runner), `deepmerge-ts` via `@prisma/config` (Prisma CLI), and `postcss` 8.4.31 as a nested dependency of Next 15's build pipeline (the top-level `postcss` resolves to a patched 8.5.28). Every offered fix is a major upgrade that would break the pins above. To be restated in the README limitations section in Phase 10.
 
-## Next: Phase 6 — Verification workflow
+## Next: Phase 7 — Audit & monitoring
 
-- The exact eight-step Figure 8 sequence returning the structured `VerificationResult`.
-- Verify UI rendering the step checklist and an AUTHENTIC/INVALID badge with the reason.
-- The five required failure tests, against real crypto with no mocking: `HASH_MISMATCH`, `CERTIFICATE_EXPIRED`, `CERTIFICATE_REVOKED`, `SIGNATURE_INVALID`, and a cross-algorithm public-key substitution.
-- Plus the extra tamper case noted in decision 9: a validly re-encrypted substitution, so the hash comparison itself is exercised and not only the AES-GCM tag.
+- `AuditLogEntry` schema with the `entryHash = SHA256(prevHash + serialised entry)` chain.
+- Emit entries for login, upload, sign, verify (both outcomes, with reason), certificate issue/revoke, and key lifecycle transitions.
+- Audit log UI with a "Verify Log Integrity" button that walks the chain.
+- A test that corrupts one stored entry and confirms the integrity check identifies exactly where the chain breaks.
+- Section 6: concurrent verifications must not corrupt the chain — append safely.
