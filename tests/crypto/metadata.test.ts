@@ -42,6 +42,11 @@ describe.each(ALGORITHMS)("%s metadata", (algorithm) => {
   it("classifies its security consistently", () => {
     if (metadata.securityClass === "post-quantum") {
       expect(metadata.securityLevel.nistPqCategory).toBeGreaterThanOrEqual(1);
+    } else if (metadata.securityClass === "hybrid") {
+      // A PQ/T hybrid must state both the post-quantum category and the classical strength it keeps.
+      expect(metadata.securityLevel.nistPqCategory).toBeGreaterThanOrEqual(1);
+      expect(metadata.securityLevel.classicalBits).toBeGreaterThanOrEqual(112);
+      expect(metadata.family).toBe("Composite");
     } else {
       expect(metadata.securityLevel.nistPqCategory).toBeNull();
       expect(metadata.securityLevel.classicalBits).toBeGreaterThanOrEqual(112);

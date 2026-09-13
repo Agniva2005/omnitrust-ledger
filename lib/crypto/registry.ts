@@ -5,6 +5,7 @@
 // issuance, signing, verification, the seed data and every UI list are derived from this
 // object, and tests/crypto/agility.test.ts proves it with a provider this file does not
 // contain.
+import { compositeMlDsa65EcdsaP256Provider } from "@/lib/crypto/providers/composite-mldsa65-ecdsa-p256";
 import { ecdsaProvider } from "@/lib/crypto/providers/ecdsa";
 import { eddsaProvider } from "@/lib/crypto/providers/eddsa";
 import { mlDsa65Provider } from "@/lib/crypto/providers/mldsa";
@@ -16,6 +17,7 @@ export const PROVIDERS = {
   ECDSA_P256: ecdsaProvider,
   ED25519: eddsaProvider,
   ML_DSA_65: mlDsa65Provider,
+  MLDSA65_ECDSA_P256: compositeMlDsa65EcdsaP256Provider,
 } as const satisfies Record<string, SignatureProvider>;
 
 export type Algorithm = keyof typeof PROVIDERS;

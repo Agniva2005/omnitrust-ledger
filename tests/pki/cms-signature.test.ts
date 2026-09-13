@@ -2,11 +2,15 @@
 // checked by tools that share no code with this app. RSA-PSS and ECDSA are verified with
 // `openssl cms -verify`; the OpenSSL CLI (3.2.4 and 3.4.0 checked) cannot process Ed25519 or ML-DSA CMS, so those
 // signatures are checked against node:crypto's Ed25519 (the app signs Ed25519 with @noble)
-// and @noble/post-quantum's ML-DSA (the app signs ML-DSA with OpenSSL).
+// and @noble/post-quantum's ML-DSA (the app signs ML-DSA with OpenSSL). No released OpenSSL CLI
+// implements composite ML-DSA, so each component of a composite signature is checked separately
+// with @noble/post-quantum and @noble/curves, over a message representative rebuilt here from the
+// draft's constants rather than taken from the app.
 import { spawnSync } from "node:child_process";
 import { createHash, createPublicKey, verify as nodeVerify } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { p256 } from "@noble/curves/nist.js";
 import { ml_dsa65 } from "@noble/post-quantum/ml-dsa.js";
 import { CertificateChoices, CertificateSet, ContentInfo, SignedData } from "@peculiar/asn1-cms";
 import { AsnConvert, OctetString } from "@peculiar/asn1-schema";
@@ -215,6 +219,38 @@ describe("independent verification outside this app's code", () => {
     ML_DSA_65: (signedAttrs, signature, certificatePem) => {
       const spki = createPublicKey(certificatePem).export({ format: "der", type: "spki" });
       return ml_dsa65.verify(new Uint8Array(signature), new Uint8Array(signedAttrs), new Uint8Array(spki.subarray(-1952)));
+    },
+    // draft-ietf-lamps-pq-composite-sigs-19 with the empty context of draft-ietf-lamps-cms-composite-sigs-05:
+    // M' = Prefix || Label || 0x00 || SHA-512(signedAttrs); ML-DSA-65 over M' with ctx = Label, ECDSA P-256 over SHA-256(M').
+    MLDSA65_ECDSA_P256: (signedAttrs, signature, certificatePem) => {
+      const certificate = AsnConvert.parse(pemBody(certificatePem), Certificate);
+      const rawKey = new Uint8Array(certificate.tbsCertificate.subjectPublicKeyInfo.subjectPublicKey);
+      const label = Buffer.from("COMPSIG-MLDSA65-ECDSA-P256-SHA512", "ascii");
+      const representative = Buffer.concat([
+        Buffer.from("CompositeAlgorithmSignatures2025", "ascii"),
+        label,
+        Buffer.from([0x00]),
+        createHash("sha512").update(signedAttrs).digest(),
+      ]);
+      if (signature.length <= 3309) return false;
+      const mldsaValid = ml_dsa65.verify(
+        new Uint8Array(signature.subarray(0, 3309)),
+        new Uint8Array(representative),
+        rawKey.subarray(0, 1952),
+        { context: new Uint8Array(label) },
+      );
+      let ecdsaValid = false;
+      try {
+        ecdsaValid = p256.verify(
+          new Uint8Array(signature.subarray(3309)),
+          new Uint8Array(createHash("sha256").update(representative).digest()),
+          rawKey.subarray(1952),
+          { format: "der", lowS: false, prehash: false },
+        );
+      } catch {
+        ecdsaValid = false;
+      }
+      return mldsaValid && ecdsaValid;
     },
   };
 

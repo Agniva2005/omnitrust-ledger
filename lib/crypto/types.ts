@@ -11,9 +11,10 @@ export type KeyPairPem = {
   privateKeyPem: string;
 };
 
-export type AlgorithmFamily = "RSA" | "ECDSA" | "EdDSA" | "ML-DSA";
+export type AlgorithmFamily = "RSA" | "ECDSA" | "EdDSA" | "ML-DSA" | "Composite";
 
-export type SecurityClass = "classical" | "post-quantum";
+/** "hybrid": a PQ/T composite whose security holds while either its post-quantum or its classical component does. */
+export type SecurityClass = "classical" | "post-quantum" | "hybrid";
 
 /**
  * Declarative description of a provider. Every field is plain data so it can be sent to

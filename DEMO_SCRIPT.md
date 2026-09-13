@@ -34,10 +34,10 @@ The seed contains:
 
 | # | Do this | You should see | Demonstrates |
 | --- | --- | --- | --- |
-| 1 | Open <http://localhost:3000> signed out | Four signature algorithms read from the provider registry, including **ML-DSA-65 (post-quantum)**, the layered architecture, and the "Demo / Not for Production Use" footer | Registry-driven design; honest security posture |
+| 1 | Open <http://localhost:3000> signed out | Five signature algorithms read from the provider registry, including **ML-DSA-65 (post-quantum)** and the **ML-DSA-65 + ECDSA P-256 composite (hybrid)**, the layered architecture, and the "Demo / Not for Production Use" footer | Registry-driven design; honest security posture |
 | 2 | Go to **/login**, click the **SIGNER** chip, click **Sign in** | The dashboard for `signer@demo`; its permissions include `document:sign` but not `certificate:revoke` | Role-to-capability authorisation |
 | 3 | Read the dashboard | Live counts of documents, signatures (all time-stamped, all with a CMS export), certificates, audit entries, the root CA, the Time-Stamp Authority and the latest CRL, and recent verifications | Every figure comes from the database at request time |
-| 4 | Open **Algorithms** | A comparison of all four algorithms (class, security level, key and signature sizes, determinism, measured medians if you ran the benchmark), with a card per algorithm and a **Crypto-agility** section | The registry, and how "add an algorithm" is tested |
+| 4 | Open **Algorithms** | A comparison of all five algorithms (class, security level, key and signature sizes, determinism, measured medians if you ran the benchmark), with a card per algorithm and a **Crypto-agility** section | The registry, and how "add an algorithm" is tested |
 
 ## Part B — Documents, certificates and signing (steps 5–8)
 
@@ -46,7 +46,7 @@ The seed contains:
 | 5 | **Documents** → **Upload document** → choose any small text file under **File** → **Upload** | The document page, state **HASHED** and a SHA-256. Check it yourself with `certutil -hashfile <file> SHA256` (Windows) or `sha256sum <file>` | Real hashing of the uploaded bytes; blobs stored encrypted |
 | 6 | **Certificates** → in **Issue a certificate**, pick **ML-DSA-65 (post-quantum)** under **Algorithm** → **Issue certificate** | A new ACTIVE ML-DSA-65 certificate, issued by the ECDSA P-256 root CA | Key generation through the registry; a post-quantum key certified by a classical CA |
 | 7 | Open your uploaded document → under **Signing certificate** choose the new ML-DSA-65 certificate → **Sign document** | A signature row: ML-DSA-65, **3309 bytes**, and its Export links | Signing through a certificate, never by naming an algorithm |
-| 8 | Open the four seeded samples from **Documents** | Signature sizes of **384** (RSA-PSS), about **70** (ECDSA), **64** (Ed25519) and **3309** (ML-DSA-65) bytes | One workflow, four algorithms |
+| 8 | Open the five seeded samples from **Documents** | Signature sizes of **384** (RSA-PSS), about **70** (ECDSA), **64** (Ed25519), **3309** (ML-DSA-65) and about **3380** (ML-DSA-65 + ECDSA P-256 composite: both component signatures) bytes | One workflow, five algorithms, one of them a post-quantum/classical hybrid |
 
 ## Part C — Verification (steps 9–11)
 

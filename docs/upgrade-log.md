@@ -887,7 +887,7 @@ The dashboard read stored certificate statuses. The seeded expired certificate t
 - A diagnostic service-level loop of 120 sign-and-verify cycles never reproduced it: only its first cycle created a CRL.
 - Four combined runs reproduced it once.
 
-### Also changed
+### Also changed (walkthrough)
 
 - **`scripts/ci.ts`:** the integration suite now includes `tests/db`. The CI plan test failed `npm run ci` because the new test file belonged to no suite, which is exactly the guard's purpose.
 - **`tests/api/routes.test.ts`:** its verification assertion now reports the verdict's evidence (outcome, reason, trust summary and non-passing steps) on failure, instead of a bare outcome mismatch.
@@ -900,3 +900,49 @@ The dashboard read stored certificate statuses. The seeded expired certificate t
   - a 7-leaf anchor batch;
   - the Security Lab rewrite held, with table fingerprints of every pre-existing row identical before and after;
   - benchmarks at n = 200.
+
+---
+
+## Phase 16 — Composite ML-DSA-65 + ECDSA P-256 (post-quantum/classical hybrid)
+
+**Why.** The chosen research direction is post-quantum migration evidence. A migration rarely moves straight from a classical algorithm to a post-quantum one: the transition mechanism the IETF has standardised for X.509 and CMS is the *composite* signature, which stays unforgeable while either component is unbroken. Measuring the cost of migration without the mechanism migrations will actually use would leave the central comparison out.
+
+**What was built.**
+- `lib/crypto/providers/composite-mldsa65-ecdsa-p256.ts`: `id-MLDSA65-ECDSA-P256-SHA512` (OID `1.3.6.1.5.5.7.6.45`) from draft-ietf-lamps-pq-composite-sigs-19, which is in the RFC Editor queue.
+  - M′ = `"CompositeAlgorithmSignatures2025"` ‖ `"COMPSIG-MLDSA65-ECDSA-P256-SHA512"` ‖ len(ctx) ‖ ctx ‖ SHA-512(M).
+  - ML-DSA-65 signs M′ with the Label as its FIPS 204 context. ECDSA P-256 signs M′ with SHA-256.
+  - A signature is valid only if both components verify, and verification always evaluates both.
+  - The application context is empty, which draft-ietf-lamps-cms-composite-sigs-05 requires for CMS.
+- Keys use the draft's encodings: an SPKI with the composite OID and absent parameters over ML-DSA pk (1952) ‖ uncompressed P-256 point (65), and a PKCS#8 over the ML-DSA seed (32) ‖ an ECPrivateKey without its publicKey field.
+- CMS identifiers follow the CMS draft: SHA-512 digest, composite signature OID, absent parameters.
+- One registry line. `SecurityClass` gains `"hybrid"` and `AlgorithmFamily` gains `"Composite"`; the metadata test requires a hybrid to state both a post-quantum category and a classical strength.
+- Both components run in OpenSSL through `node:crypto`. On this machine (Node 24.14, OpenSSL 3.5.5) the ML-DSA `context` option is honoured: a signature made with one context fails under another and under none. `raw-seed` key export is not available, so the seed is read from the JWK export's `priv`, and a seed-only RFC 9881 PKCS#8 was confirmed to round-trip to the same public key.
+
+**Evidence.**
+- **Before any project code**, a scratch probe checked the reading of the draft against its published test vectors. The id-MLDSA65-ECDSA-P256-SHA512 entry of `src/testvectors.json` (491,883 bytes, sha256 `a60f697f…`) was downloaded, with permission, pinned to upstream commit `1bb9f5c678ff1b7c3a0548ac33d21681e9ea10ad`. Both reference signatures verified (empty context and the published context). A flipped message and a wrong context failed. The reference seed reproduced the ML-DSA key in `@noble/post-quantum`. The reference certificate's composite self-signature verified.
+- **`tests/fixtures/composite/mldsa65-ecdsa-p256-sha512.json`** keeps only that entry, with its source URL, commit and file hash.
+- **`tests/crypto/composite.test.ts`** (13 tests) runs the same checks through the provider:
+  - the reference signatures verify, and a flipped message is rejected;
+  - M′ is rebuilt byte for byte (the context-bearing vector verifies only with its context);
+  - the reference certificate's self-signature verifies;
+  - altering either component alone is rejected, and either component presented without the other is rejected;
+  - the provider signs with the reference private key and the reference public key verifies the result;
+  - generated keys match the reference encodings;
+  - the ML-DSA component verifies in `@noble/post-quantum` only with the Label as context.
+- **Generic suites pick up the new entry automatically.** Metadata, providers (including cross-algorithm refusal in both directions against all four other algorithms), orchestrator, signing, certificates, verification, fixtures and agility all ran against it. Crypto suites: 168 passed, 2 skipped (the OpenSSL CLI check, which declares no command for this algorithm).
+- **`tests/pki/cms-signature.test.ts`** first failed its own guard, "covers every registered algorithm with at least one independent check", because the composite had neither OpenSSL CMS support nor an independent verifier. It now has one that shares no code with the app: M′ is rebuilt from the draft's constants in the test, the ML-DSA component is verified with `@noble/post-quantum` and the ECDSA component with `@noble/curves` (DER, `lowS: false`). CMS suite: 38 passed.
+- `npm run check:boundary` and `npm run lint` pass.
+- The first full CI run failed one step, because the gitignored `public/benchmarks.json` came from a four-algorithm run: `tests/crypto/benchmark-output.test.ts` requires the results to cover every registered algorithm. `npm run benchmark` was rerun (n = 200); results are regenerated, never edited. The composite's 1 KiB medians were sign 1.488 ms and verify 0.362 ms, against 1.261 and 0.238 ms for ML-DSA-65 and 0.091 and 0.113 ms for ECDSA P-256.
+- **`npm run ci`: CI PASSED in 186 s**, all 11 steps.
+- **`npm run e2e`: 17 of 17 passed.** It includes "issue, upload, sign and verify under every registered algorithm (5 algorithms)", the five seeded samples VALID, the composite-signed tampered invoice INVALID with HASH_MISMATCH, and the development database's SHA-256 identical before and after.
+
+**Consequences for the demo.**
+- The seeded signed samples grow to five; the new one is `data-processing-addendum-mldsa65-ecdsa-p256.txt`.
+- The pre-tampered invoice is signed with the last registered algorithm, so it is now composite-signed.
+- `DEMO_SCRIPT.md` steps 1, 4 and 8 and the README's claim table now say five algorithms. Step 8 gives the composite size as about 3380 bytes.
+
+**Limits, stated.**
+- Both documents are Internet-Drafts, not RFCs, so encodings may still change.
+- No released OpenSSL CLI implements composite ML-DSA; interoperability rests on the draft authors' reference vectors.
+- Only one of the draft's 18 combinations is implemented.
+- The CA still signs certificates with ECDSA P-256. Composite certificate authorities are not implemented, because certificate signing goes through WebCrypto.

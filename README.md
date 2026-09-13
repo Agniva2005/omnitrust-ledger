@@ -50,7 +50,7 @@ All four use the password `demo1234`.
 
 | Claim | Where to see it | Evidence |
 | --- | --- | --- |
-| Algorithms can be added or swapped without touching other layers | Algorithms page; sign under four algorithms | `npm run check:boundary`; `tests/crypto/agility.test.ts` registers an extra ML-DSA-44 provider at test time |
+| Algorithms can be added or swapped without touching other layers | Algorithms page; sign under five algorithms | `npm run check:boundary`; `tests/crypto/agility.test.ts` registers an extra ML-DSA-44 provider at test time |
 | Tampering is detected | `invoice-tampered.txt` → Verify | SHA-256 recomputed from the bytes on disk; Security Lab document and ciphertext attacks |
 | A signature's validity is judged at a trusted time | Revoke a certificate, re-verify | RFC 3161 time-stamps; timestamp-aware revocation policy; `tests/verification/timestamp-aware.test.ts` |
 | Revocation is published, not just a database column | `/api/pki/crl`, the certificate explorer | CA-signed CRLs with reason codes; checked by `openssl crl` in tests |

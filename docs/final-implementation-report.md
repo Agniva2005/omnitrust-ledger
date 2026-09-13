@@ -13,7 +13,7 @@ Commit hashes refer to this repository. [`docs/upgrade-log.md`](upgrade-log.md) 
 
 ## 1. Summary
 
-A local, demo-grade PKI document signing system. It has four signature algorithms, including one post-quantum; ten-step verification with four distinct verdicts; RFC 3161 time-stamping with timestamp-aware revocation; CA-signed CRLs; CMS export verifiable by OpenSSL; a hash-chained audit log with signed checkpoints; Merkle anchoring on a local chain; a sandboxed Security Lab; statistically reported benchmarks; and offline CI and end-to-end regression. At the end of Phase 14: **699 tests passed, 1 skipped**; `npm run ci` passed all 11 steps; `npm run e2e` passed 17 of 17 steps.
+A local, demo-grade PKI document signing system. It has five signature algorithms, including one post-quantum (ML-DSA-65) and one post-quantum/classical composite (ML-DSA-65 + ECDSA P-256, added after Phase 15 and checked against the IETF draft's published test vectors); ten-step verification with four distinct verdicts; RFC 3161 time-stamping with timestamp-aware revocation; CA-signed CRLs; CMS export verifiable by OpenSSL; a hash-chained audit log with signed checkpoints; Merkle anchoring on a local chain; a sandboxed Security Lab; statistically reported benchmarks; and offline CI and end-to-end regression. At the end of Phase 14: **699 tests passed, 1 skipped**; `npm run ci` passed all 11 steps; `npm run e2e` passed 17 of 17 steps.
 
 ## 2. Ground rules followed
 
@@ -54,7 +54,9 @@ A local, demo-grade PKI document signing system. It has four signature algorithm
 | ML-DSA-65 (FIPS 204, OpenSSL 3.5 through `node:crypto`) | IMPLEMENTED | Cross-verified with `@noble/post-quantum` from the same seed (`tests/crypto/mldsa-interop.test.ts`) |
 | ML-DSA verification with the OpenSSL command-line tool | LIMITED BY LIBRARY | The installed CLIs (3.2.4, 3.4.0) cannot parse ML-DSA keys; the metadata test that runs the CLI is skipped for ML-DSA |
 | Requires Node 24 for ML-DSA | PARTIAL | Stated in the README; older Node cannot run the ML-DSA provider |
-| Hybrid or composite signatures | NOT IMPLEMENTED | — |
+| Composite ML-DSA-65 + ECDSA P-256 (`id-MLDSA65-ECDSA-P256-SHA512`, draft-ietf-lamps-pq-composite-sigs-19; CMS per draft-ietf-lamps-cms-composite-sigs-05) | IMPLEMENTED | `tests/crypto/composite.test.ts` verifies the draft's published signatures, keys and self-signed certificate (vectors pinned to upstream commit `1bb9f5c6`); each component of an in-app CMS signature is verified independently with `@noble/post-quantum` and `@noble/curves` (`tests/pki/cms-signature.test.ts`); both components are required |
+| Composite signatures specified by an RFC | PARTIAL | Both documents are Internet-Drafts in the RFC Editor queue, not yet RFCs; identifiers or encodings may change before publication |
+| Composite verification with the OpenSSL command-line tool | LIMITED BY LIBRARY | No released OpenSSL CLI implements composite ML-DSA |
 
 ## 6. Verification workflow
 
@@ -200,7 +202,7 @@ Each was found by a test, an external tool or a live check, not assumed.
 - HSM or KMS key custody; multi-factor authentication; server-side session revocation.
 - ETSI EN 319 102-1, CAdES or PAdES conformance; PDF signing.
 - Persistent or public-chain anchoring.
-- Hybrid post-quantum signatures.
+- Composite signatures other than ML-DSA-65 + ECDSA P-256 (the draft defines 18 combinations); composite certificate authorities (the CA still signs with a classical algorithm).
 - Multi-instance deployment.
 - Offline dependency-advisory scanning; code-coverage percentages; hosted CI.
 - A formal accessibility audit.
