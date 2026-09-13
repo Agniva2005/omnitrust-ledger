@@ -1,0 +1,86 @@
+# Paper outline (working draft, not for submission)
+
+Status: outline mapping every intended claim to the evidence that already exists in the repository. Nothing here is a result that has not been measured. Citations marked **[verify]** are from memory and must be checked against the original source before any draft is shared.
+
+## Working title
+
+*Where the Bytes Go: An Empirical Trust-Chain Study of Post-Quantum and Hybrid Signatures in a Crypto-Agile Document Signing System*
+
+Alternative, more systems-oriented: *Design and Adversarial Evaluation of a Crypto-Agile Document Signing Platform with Composite Post-Quantum Signatures*
+
+## Target venues (per docs/audit/03, §3.1)
+
+- IEEE Access: systems and applied-security article with strong empirical evaluation. This is the primary target.
+- An IEEE SecDev-style systems track, or a workshop co-located with IEEE S&P or EuroS&P, as a shorter version.
+- Not TDSC or TIFS as a research article: there is no new cryptography, and the contribution is integration plus measurement.
+
+## Contribution statement (candidate, to be defended in related work)
+
+1. **A whole-trust-chain measurement of post-quantum migration.** Classical, ML-DSA-65 and composite ML-DSA-65+ECDSA-P256 are compared through a real signing workflow: certificate, signature, CMS SignedData, RFC 3161 token, CRL growth, anchoring commitment, issuance, signing, ten-step verification and CMS verification. Most published comparisons stop at primitive sign/verify time and key and signature sizes. *Novelty claim to check:* whether trust-chain-level, workflow-level measurements including hybrid composites exist in prior work.
+2. **An implementation of composite ML-DSA (draft-ietf-lamps-pq-composite-sigs-19) validated against the IETF reference vectors.** It also carries an independent component-wise CMS verification. This is an engineering contribution and evidence of interoperability, not new cryptography.
+3. **A methodological finding for signature benchmarking.** Contiguous per-algorithm measurement blocks produced statistically "significant" effects that cannot be causal: a composite faster than its own component, and an abstraction faster than the call it wraps. Interleaved, seeded rounds removed them. This belongs with non-parametric, multiplicity-corrected comparisons as a recommended practice.
+4. **A verification-time consistency bug class.** Evidence generated on demand during verification (here, a CRL) can post-date the verification instant, and a correct freshness check then yields an UNVERIFIABLE verdict intermittently. The fix is a single evaluation instant threaded through every revocation decision. It was found empirically and made deterministic with a regression test.
+5. **Supporting system properties already evidenced:**
+   - a statically enforced crypto-agility boundary;
+   - four non-collapsed verdicts;
+   - timestamp-aware revocation;
+   - a Security Lab with 15 sandboxed attack scenarios.
+
+## Section plan and evidence map
+
+| Section | Content | Evidence in repository |
+| --- | --- | --- |
+| I. Introduction | PQ migration problem; why workflow-level cost matters; contributions | — |
+| II. Background | ML-DSA (FIPS 204); composite signatures; RFC 3161, RFC 5280 CRLs, RFC 5652 CMS; RFC 6962 Merkle trees | Provider metadata `lib/crypto/providers/*` |
+| III. Related work | See the reading list below; position against each | To be written; none yet |
+| IV. System design | Seven layers; orchestrator and registry; verification workflow and verdict model; timestamp-aware revocation; anchoring | `README.md`, `lib/documents/verification.ts`, `lib/pki/revocation.ts` |
+| V. Composite ML-DSA implementation | Encoding, M′ construction, key formats, CMS profile; KAT validation | `lib/crypto/providers/composite-mldsa65-ecdsa-p256.ts`, `tests/crypto/composite.test.ts`, upgrade log Phase 16 |
+| VI. Threat model and security analysis | Adversary capabilities → mechanism → Security Lab scenario → result (docs/audit/03 §3.2.2); verdict soundness argument | `lib/security-lab/catalog.ts`, Security Lab tests |
+| VII. Evaluation methodology | Isolated installation, interleaved seeded rounds, n, warm-up, statistics (Mann-Whitney, Cliff's δ, Hodges-Lehmann, Welch, Holm) | `scripts/migration-study.ts`, `lib/benchmarks/*`, tests |
+| VIII. Results | Size table; algorithm-independent artefacts; workflow timings; significance summary; agility overhead | `public/migration-study.json` (regenerate for the paper), upgrade log Phase 17 |
+| IX. Lessons | Block-design confound; verification-time consistency bug; Buffer-pool detach (engineering footnote) | Upgrade log walkthrough fixes + Phase 17 |
+| X. Limitations and threats to validity | Single machine; SQLite and filesystem latency; classical CA/TSA; Internet-Drafts; demo-grade key custody; Ed25519 in JS | Final report §19, upgrade log limits |
+| XI. Artifact availability | `npm run setup / ci / e2e / study:migration`; seeds; pinned vectors | `README.md`, `CHANGELOG.md` |
+| XII. Conclusion and future work | Track A roadmap from docs/audit/03 as future work | docs/audit/03 §2 |
+
+## Measurements still required before writing results
+
+1. Repeat `npm run study:migration` on at least two further machines (different CPU vendor and OS if possible), same seed and a second seed. Report per-machine results and whether the qualitative findings hold.
+2. Increase end-to-end n (for example 100) for the final run, and report the achieved confidence-interval widths.
+3. Measure the classical-vs-PQ cost when the **CA and TSA themselves** migrate. This is currently not measured and is a natural extension, but it needs a composite or ML-DSA issuer path; WebCrypto blocks it today.
+4. Optional: payload-size sweep for end-to-end signing, to show where hashing starts to matter.
+
+## Verified so far (2026-09-14)
+
+- **NIST IR 8547 (Initial Public Draft, November 2024), "Transition to Post-Quantum Cryptography Standards".** It sets the deprecation and removal of quantum-vulnerable algorithms from NIST standards by 2035. Sources: https://csrc.nist.gov/pubs/ir/8547/ipd and https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf
+- **RFC 9881:** X.509 algorithm identifiers for ML-DSA. **RFC 9882:** ML-DSA in CMS. Source: https://www.rfc-editor.org/rfc/rfc9882.html. The ML-DSA provider's metadata citations of both are correct.
+- **Mytkowicz, Diwan, Hauswirth, Sweeney.** "Producing wrong data without doing anything obviously wrong!", ASPLOS 2009, DOI 10.1145/1508244.1508275. It shows that innocuous setup choices bias measurements, and proposes setup randomization and causal analysis. **Consequence for contribution 3:** interleaved, seeded rounds are an application of setup randomization, not a new method. The paper should report the block-design artefacts as a concrete instance in signature benchmarking and cite this work, not claim the method.
+- **Prior empirical work on PQ certificate hierarchies exists, all TLS-centred so far.** Contribution 1 must therefore be positioned as the document-signing, CMS and trust-service workflow counterpart, not as the first chain-level measurement. Papers found:
+  - "Signature Placement in Post-Quantum TLS Certificate Hierarchies: An Experimental Study of ML-DSA and SLH-DSA in TLS 1.3 Authentication": arXiv 2604.06100, IACR ePrint 2026/666.
+  - "Network Impact of Post-Quantum Certificate Chain sizes on Time to First Byte in TLS Deployments": arXiv 2604.24869.
+  - "A Comparative Study of Hybrid Post-Quantum Cryptographic X.509 Certificate Schemes": arXiv 2511.00111. It needs close reading for overlap with the composite certificate sizes.
+
+  The overlap check is still open. Chen (arXiv 2511.00111, October 2025) is **not yet read**: the arXiv page shows only the abstract (composite, catalyst and chameleon schemes; certificate size, computational efficiency, migration feasibility), there is no HTML rendering, and its PDF could not be text-extracted here. Until it is read, the paper must not claim composite certificate sizes as new, and any size comparison must cite it.
+- **Application-level but outside our niche:** Jain, "Performance Analysis of Quantum-Secure Digital Signature Algorithms in Blockchain", arXiv 2601.17785 (January 2026). It evaluates Dilithium, Falcon, Hawk and HAETAE inside a blockchain prototype, covering key generation, sign and verify times, and key and signature sizes. No document signing, CMS, time-stamping or PKI revocation. It can be cited as evidence that application-level PQ evaluation is being done in other domains.
+- **Not accessible:** "Securing the future: A comprehensive review of post-quantum digital signatures" (ScienceDirect, S1574013726000432). The page returned HTTP 403, so authors, venue, year and scope are unverified. Do not cite until read.
+- **No academic workflow-level evaluation of PQ or hybrid signatures in document signing** (CMS, RFC 3161 time-stamping, CRLs) turned up in two searches. Only vendor material appeared (for example an Ascertia ADSS interoperability blog). A gap is plausible but not established: a systematic search (IEEE Xplore, ACM DL, IACR ePrint, Scopus, with recorded queries) is required before the paper claims one.
+
+## Reading list to build related work (items not listed above remain [verify]; none cited yet)
+
+- NIST FIPS 204 (ML-DSA), FIPS 186-5 (ECDSA), SP 800-57 Part 1 Rev. 5, and NIST IR 8547 (transition to PQC standards) **[verify number/title]**.
+- IETF draft-ietf-lamps-pq-composite-sigs-19; draft-ietf-lamps-cms-composite-sigs-05; RFC 9881 and RFC 9882 (ML-DSA in X.509 / CMS) **[verify numbers]**.
+- Studies of PQC in TLS and X.509 certificate chains, such as the Open Quantum Safe project experiments and large-scale PQ-TLS measurements **[find and verify]**.
+- Crypto-agility literature: surveys and frameworks defining crypto-agility **[find and verify]**.
+- Transparency systems as positioning for anchoring: Certificate Transparency (RFC 6962/9162) and Sigstore/Rekor **[find the canonical papers and verify]**.
+- ETSI EN 319 102-1 (AdES validation) for the "no proof of existence" revocation reasoning.
+- Statistics:
+  - Mann & Whitney (1947), Welch (1947), Holm (1979) and Hodges & Lehmann (1963) **[verify bibliographic details]**;
+  - Romano et al. (2006) for Cliff's δ thresholds **[verify]**;
+  - benchmarking-methodology papers on measurement bias and ordering effects **[find and verify]**, for example work on measurement bias in systems evaluation.
+
+## Honesty guardrails for the draft
+
+- No claim of new cryptography. Composite signatures are the IETF's design; this work implements and measures them.
+- Every number in the paper comes from a regenerated study file whose environment and seed are reported.
+- "Enterprise-grade" is not claimed in the paper. Key custody, MFA and multi-tenancy remain future work (docs/audit/03 §3.4).
+- Acceptance is not assumed; the related-work comparison decides how strongly contributions 1 and 3 can be stated.
