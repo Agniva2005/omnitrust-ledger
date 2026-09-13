@@ -61,7 +61,7 @@ describe("validity period", () => {
     );
   });
 
-  it("fails before the window opens", async () => {
+  it("fails before the window opens, as not yet valid rather than expired", async () => {
     const notBefore = new Date(Date.now() + 86_400_000);
     const certificate = await issueCertificate({
       actor: signer,
@@ -69,7 +69,9 @@ describe("validity period", () => {
       notBefore,
       notAfter: new Date(notBefore.getTime() + 86_400_000),
     });
-    expect((await validateCertificate(certificate)).reason).toBe("CERTIFICATE_EXPIRED");
+    const validation = await validateCertificate(certificate);
+    expect(validation.reason).toBe("CERTIFICATE_NOT_YET_VALID");
+    expect(validation.window).toBe("BEFORE");
   });
 
   it("evaluates against a caller-supplied instant, so expiry can be checked historically", async () => {

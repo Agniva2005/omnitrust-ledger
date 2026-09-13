@@ -185,8 +185,12 @@ const IMPLEMENTATIONS: Record<string, () => Promise<Finding>> = {
 
   async "key-substitution"() {
     const lab = await actors();
-    const { document, signature } = await signedDocument(lab);
+    // Issued before signing, so the substitute was already valid when the signature was made and
+    // the only thing wrong is the key. Issued afterwards, it could start in a later second than
+    // the signature's time-stamp and be refused as not yet valid instead, which is also a correct
+    // refusal but not the one this scenario demonstrates.
     const foreign = await issueCertificate({ actor: lab.signer, algorithm: otherAlgorithm(CA_ALGORITHM) });
+    const { document, signature } = await signedDocument(lab);
     await prisma.signature.update({ where: { id: signature.id }, data: { certificateId: foreign.id } });
     return expectVerdict(
       ["Signed a document", `Pointed the signature at a ${foreign.algorithm} certificate`, "Verified"],

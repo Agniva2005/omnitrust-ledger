@@ -117,7 +117,7 @@ describe("a full sandboxed run", () => {
 
     const run = await runSecurityLab(admin, "document-substitution");
 
-    expect(run.result.outcome).toBe("HELD");
+    expect(run.result.outcome, `${run.result.observed} ${JSON.stringify(run.result.evidence)}`).toBe("HELD");
     expect(run.result.evidence).toMatchObject({ outcome: "INVALID", reason: "HASH_MISMATCH" });
     expect(run.sandboxRemoved).toBe(true);
     expect(fs.existsSync(path.join(LAB_ROOT, "runs", run.runId))).toBe(false);
@@ -132,7 +132,7 @@ describe("a full sandboxed run", () => {
   it("reuses the migrated template rather than migrating on every run", async () => {
     const started = Date.now();
     const run = await runScenarioInSandbox("control-untouched");
-    expect(run.result.outcome).toBe("HELD");
+    expect(run.result.outcome, `${run.result.observed} ${JSON.stringify(run.result.evidence)}`).toBe("HELD");
     expect(Date.now() - started).toBeLessThan(120_000);
     expect(fs.existsSync(path.join(LAB_ROOT, "template.db"))).toBe(true);
   }, 240_000);

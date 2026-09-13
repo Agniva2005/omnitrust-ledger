@@ -523,3 +523,65 @@ Every new view renders data the system actually holds, read at request time: reg
   - the audit timeline rendered;
   - no console errors on any page.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+
+---
+
+## Phase 10 — Statistically rigorous benchmarks
+
+### What changed
+
+- **`lib/benchmarks/statistics.ts`**, pure and unit-tested. Every definition is stated so results can be reproduced elsewhere:
+  - n, mean, and the **sample** standard deviation (n − 1), with the standard error;
+  - a **95% confidence interval for the mean** using Student's t from a table, taking the next lower tabulated degrees of freedom (conservative, slightly wider); none is reported for a single sample;
+  - median and percentiles by linear interpolation (Hyndman & Fan type 7, the NumPy and R default), replacing the earlier floor-index percentile;
+  - min, max, p5, p95 and the coefficient of variation;
+  - **outliers counted with Tukey's fences and never removed**.
+
+  The module states the caveat that timing samples are right-skewed and not strictly independent, so medians come first and the interval is indicative.
+- **`scripts/benchmark.ts`**:
+  - defaults of n = 200 per sign, verify and hash measurement, n = 20 key generations (was 5) and 20 warm-up iterations (was 5), all configurable;
+  - a written methodology inside the output;
+  - an extended environment record: Node, V8, OpenSSL, OS, CPU model and speed, cores, memory and free memory at start, load average where the OS provides it, git commit and whether the tree was dirty, start time and duration;
+  - `--smoke` for CI (small n, written to `storage/benchmarks-smoke.json` so real results are never overwritten) and `--output`.
+- **`/benchmarks`** shows n, median, mean with its 95% CI, SD and CV, min / p95 / max and outlier counts for signing, verification, hashing by payload size and key generation. It also shows the environment and methodology, and flags smoke runs and files from the earlier schema.
+- **`tests/crypto/benchmark-output.test.ts`** now requires, for a current-schema file:
+  - internally consistent statistics: n as configured, ordered min ≤ p5 ≤ median ≤ p95 ≤ max, SE = SD / √n, CV = SD / mean, and a CI containing the mean;
+  - every registered algorithm present (except in a smoke run);
+  - the environment and methodology recorded.
+
+### Measured on this machine
+
+`npm run benchmark` on an AMD Ryzen 7 8840HS (16 logical cores), Windows 11, Node 24.14.0, OpenSSL 3.5.5, took 15.4 s. This is the first file to include ML-DSA-65. Signing, n = 200 each:
+
+| Algorithm | Median | Mean [95% CI] | SD (CV) | Outliers |
+| --- | --- | --- | --- | --- |
+| RSA-PSS 3072 | 2.150 ms | 2.358 [2.297, 2.419] ms | 0.435 (18%) | 29 |
+| ECDSA P-256 | 0.128 ms | 0.162 [0.139, 0.185] ms | 0.167 (103%) | 9 |
+| EdDSA Ed25519 (@noble, pure JS) | 0.934 ms | 1.019 [0.977, 1.062] ms | 0.303 (30%) | 10 |
+| ML-DSA-65 | 1.684 ms | 2.025 [1.858, 2.191] ms | 1.191 (59%) | 8 |
+
+Reading the table: the means sit above the medians and the CVs are large (ECDSA's 103% comes from a few multi-millisecond pauses against a 0.13 ms median), which is exactly why medians are presented first. The run recorded commit `3c06433` with uncommitted changes, because it measured this phase's code before it was committed. As before, the Ed25519 figures describe `@noble/ed25519` on this runtime, not EdDSA in general.
+
+### Bugs found during this phase
+
+Both surfaced as intermittent Security Lab failures while the full suite ran alongside a build and a benchmark. Neither was dismissed as a flake.
+
+1. **A fresh installation's first signature could receive an invalid time-stamp.**
+   - `issueTimestampToken` took its genTime on entry, then created the Time-Stamp Authority if none existed.
+   - When that creation crossed a second boundary, the authority certificate's `notBefore` (whole seconds) fell one second after the token's genTime. The verifier then correctly refused the token as issued outside its authority's validity: INVALID, `TIMESTAMP_INVALID`.
+   - Diagnosis: 16 sandboxed control runs (8 idle, 8 under CPU load) did not reproduce it, which pointed at a narrow timing window rather than load.
+   - Reproduction: `tests/pki/tsa-clock.test.ts` fakes only `Date` and moves it past a second boundary at the moment the authority is found missing. Against the unfixed code it failed with `token genTime 18:12:23.000Z, authority notBefore 18:12:24.000Z`.
+   - A first version of that test compared the database row's `createdAt`, which the database engine sets on the real clock. It failed for the wrong reason, was corrected to use the certificate's own `notBefore`, and only then shown to fail on the bug.
+   - Fix: take genTime after the authority exists. An explicit `at` is still honoured, so the test that a back-dated token is refused still holds.
+2. **A certificate whose validity had not yet begun was reported as "expired".**
+   - The key-substitution scenario signed first and issued the substitute certificate afterwards. When that issuance landed in a later second than the signature's time-stamp, verification (judging at the trusted signing time) refused the certificate, correctly, as outside its validity, but named it `CERTIFICATE_EXPIRED`.
+   - RFC 5280 path validation distinguishes "not yet valid" from "expired". Validation now reports **`CERTIFICATE_NOT_YET_VALID`** when the evaluation time is before `notBefore`, and verification carries it as an INVALID reason with its own explanation.
+   - `tests/verification/not-yet-valid.test.ts` covers validation, a signature proven to predate the certificate it names, and refusal to sign with such a certificate. The existing "fails before the window opens" expectation was updated.
+   - The scenario now issues the substitute before signing, so it deterministically demonstrates `ALGORITHM_MISMATCH`, and its tests print the observed verdict and evidence on failure.
+
+### Verification
+
+- `npm test`: **673 passed, 1 skipped** across 48 files (658 after Phase 9). New: statistics (9), the time-stamp clock regression (1), not yet valid (3), and the extended benchmark-output checks. The Security Lab tests plus both regressions then passed **three consecutive runs** (28/28 each).
+- The smoke run wrote schema 2 with n = 10 for all four algorithms and left `public/benchmarks.json` byte-for-byte unchanged (SHA-256 compared).
+- Browser, `/benchmarks`: n, median, mean with CI, SD and CV, min / p95 / max and outliers, together with the environment (including OpenSSL 3.5.5, V8 and the git commit marked as having uncommitted changes) and the methodology; no console errors.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.

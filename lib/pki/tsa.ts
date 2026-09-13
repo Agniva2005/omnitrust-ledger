@@ -194,9 +194,16 @@ export type IssuedTimestamp = {
   authorityId: string;
 };
 
+/**
+ * Issues a token. `at` overrides the time only for tests that need a specific genTime; by default
+ * the time is taken after the authority is known to exist. Taking it on entry (as this function
+ * once did) let a first token on a fresh installation predate the authority certificate created
+ * a moment later, whenever that creation crossed a second boundary, and such a token is correctly
+ * refused by verification (tests/pki/tsa-clock.test.ts).
+ */
 export async function issueTimestampToken(
   request: TimestampRequest,
-  at: Date = new Date(),
+  at?: Date,
 ): Promise<IssuedTimestamp> {
   const hashAlgorithmOid = request.hashAlgorithmOid ?? DIGEST_OIDS.sha256;
   if (!isSupportedDigestOid(hashAlgorithmOid) || digestLength(hashAlgorithmOid) !== request.imprint.length) {
@@ -214,7 +221,7 @@ export async function issueTimestampToken(
 
   const algorithm = assertAlgorithm(authority.algorithm);
   const certificateDer = pemBody(authority.certPem);
-  const genTime = new Date(Math.floor(at.getTime() / 1000) * 1000);
+  const genTime = new Date(Math.floor((at ?? new Date()).getTime() / 1000) * 1000);
   const serialNumber = randomPositiveSerial();
 
   const tstInfoDer = AsnConvert.serialize(

@@ -50,6 +50,7 @@ export type VerificationOutcome = "VALID" | "INVALID" | "UNVERIFIABLE" | "ERROR"
 export const INVALID_REASONS = [
   "CERTIFICATE_CHAIN_INVALID",
   "CERTIFICATE_EXPIRED",
+  "CERTIFICATE_NOT_YET_VALID",
   "CERTIFICATE_REVOKED",
   "ALGORITHM_MISMATCH",
   "HASH_MISMATCH",
@@ -187,7 +188,8 @@ const STEP: Record<StepId, string> = {
 const REASON_SENTENCES: Record<VerificationReason, string> = {
   CERTIFICATE_CHAIN_INVALID:
     "The signing certificate does not chain to this installation's CA, lacks a document-signing profile, or disagrees with its stored record.",
-  CERTIFICATE_EXPIRED: "The signature was made outside the signing certificate's validity period.",
+  CERTIFICATE_EXPIRED: "The signature was made after the signing certificate's validity period ended.",
+  CERTIFICATE_NOT_YET_VALID: "The signature was made before the signing certificate's validity period began.",
   CERTIFICATE_REVOKED: "The signing certificate's revocation means this signature cannot be trusted.",
   ALGORITHM_MISMATCH:
     "The signature record, the certificate record and the certificate's key disagree about the algorithm.",
@@ -347,6 +349,8 @@ export async function verifyDocument(
         } else {
           reasons.push("CERTIFICATE_EXPIRED");
         }
+      } else if (validation.reason === "CERTIFICATE_NOT_YET_VALID") {
+        reasons.push("CERTIFICATE_NOT_YET_VALID");
       }
 
       record("certificate-validity", STEP["certificate-validity"], status, detail);

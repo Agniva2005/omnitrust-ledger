@@ -7,6 +7,7 @@ import { parseCertificate } from "@/lib/pki/certificates";
 
 export type CertificateFailureReason =
   | "CERTIFICATE_EXPIRED"
+  | "CERTIFICATE_NOT_YET_VALID"
   | "CERTIFICATE_REVOKED"
   | "CERTIFICATE_CHAIN_INVALID";
 
@@ -150,7 +151,8 @@ export async function validateCertificate(
     passed: window === "WITHIN",
     detail: `${parsed.notBefore.toISOString()} to ${parsed.notAfter.toISOString()}, evaluated at ${at.toISOString()}`,
   });
-  if (window !== "WITHIN" && !reason) reason = "CERTIFICATE_EXPIRED";
+  // RFC 5280 path validation treats "not yet valid" and "expired" as different conditions.
+  if (window !== "WITHIN" && !reason) reason = window === "BEFORE" ? "CERTIFICATE_NOT_YET_VALID" : "CERTIFICATE_EXPIRED";
 
   // --- Revocation, as currently recorded ---
   if (options.revocation !== "skip") {
