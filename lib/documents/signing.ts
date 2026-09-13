@@ -7,12 +7,11 @@ import type { Signature } from "@prisma/client";
 import { ConflictError, NotFoundError } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
 import { AuthorizationError, requireCapability, type Actor } from "@/lib/auth/rbac";
-import { orchestrator } from "@/lib/crypto/orchestrator";
-import { assertAlgorithm } from "@/lib/crypto/types";
+import { assertAlgorithm, orchestrator } from "@/lib/crypto/orchestrator";
 import { prisma } from "@/lib/db";
 import { assertPath, assertDocumentState } from "@/lib/documents/lifecycle";
 import { latestVersion, recomputeVersionHash } from "@/lib/documents/service";
-import { privateKeyPemFor } from "@/lib/pki/certificates";
+import { privateKeyPemFor, publicKeyPemFromCertificate } from "@/lib/pki/certificates";
 import { validateCertificate } from "@/lib/pki/validation";
 
 export type SignDocumentInput = {
@@ -32,8 +31,8 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Signs the current version's hash. The payload is the raw 32 bytes of that
- * SHA-256, so the signature is over the document's content digest and nothing else.
+ * Signs the current version's hash. The message handed to the provider is the raw 32
+ * bytes of that SHA-256, so the signature is over the document's content digest.
  */
 export async function signDocument(input: SignDocumentInput): Promise<SignDocumentResult> {
   requireCapability(input.actor, "document:sign");
@@ -66,6 +65,14 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
     );
   }
 
+  const algorithm = assertAlgorithm(certificate.algorithm);
+  // Never sign under a label the certificate's own key contradicts.
+  if (orchestrator.identifyPublicKey(publicKeyPemFromCertificate(certificate.certPem)) !== algorithm) {
+    throw new ConflictError(
+      "The certificate's public key does not match its recorded algorithm; refusing to sign",
+    );
+  }
+
   // Integrity precondition: never sign a hash that no longer describes the stored
   // bytes, otherwise the signature would attest to something that was never there.
   const recomputed = await recomputeVersionHash(version);
@@ -75,12 +82,9 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
     );
   }
 
-  const algorithm = assertAlgorithm(certificate.algorithm);
-  const digest = Buffer.from(version.hash, "hex");
-
   const signatureBytes = await orchestrator.sign({
     algorithm,
-    digest,
+    message: Buffer.from(version.hash, "hex"),
     privateKeyPem: privateKeyPemFor(certificate.keyPair),
   });
 

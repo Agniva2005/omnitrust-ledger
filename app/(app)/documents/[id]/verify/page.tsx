@@ -66,7 +66,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
               <CardTitle>What is being verified</CardTitle>
               <CardDescription>
                 Signature on v{latest.documentVersion.versionNumber}, made with{" "}
-                {orchestrator.describe(latest.algorithm as never).displayName} under certificate{" "}
+                {orchestrator.displayName(latest.algorithm)} under certificate{" "}
                 <span className="font-mono text-xs">{latest.certificate.serialNumber}</span>.
               </CardDescription>
             </CardHeader>

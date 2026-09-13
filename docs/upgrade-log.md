@@ -59,3 +59,58 @@ Commit `ba6511d`.
 - `npm test`: **319 passed** across 27 files (266 at baseline; none removed).
 - `tsc --noEmit`: clean. `npm run lint`: clean. `npm run build`: clean, with middleware compiled for the edge runtime.
 - Browser, against `npm run dev` with seeded data: sign-in through the real form; the RSA-signed agreement shows **AUTHENTIC** with every step `PASS`, including the four new certificate-profile checks; the pre-tampered invoice returns `INVALID` / `HASH_MISMATCH` with steps 1–6 passing and 7–8 failing.
+
+---
+
+## Phase 2 — Provider abstraction, algorithm metadata, and a demonstrable agility claim
+
+### What changed
+
+- **Registry as the single source of algorithms.** `lib/crypto/registry.ts` holds `PROVIDERS`; the `Algorithm` type, `ALGORITHMS`, API validation and every UI list are derived from it. This corrects the audit finding (D/E) that "one provider file plus one registry line" undercounted: previously the `ALGORITHMS` tuple also had to change. The registry refuses a provider registered under an identifier it does not declare, and one whose issuer capability contradicts its certificate-signing parameters.
+- **`lib/crypto/orchestrator.ts` is the layer's only public entry point.** It adds `lookup()` and `displayName()` for identifiers read from storage (never throwing), and `identifyPublicKey()`, which decides an algorithm from key material rather than from a stored label.
+- **Structured algorithm metadata** (`AlgorithmMetadata`): family, classical/post-quantum class, standards, security level with its basis, quantum resistance, implementation library/backend/version, parameters, message processing, determinism, public key and signature sizes and encodings, serialisation, OIDs, interoperability (the OpenSSL command that independently verifies a signature), capabilities, security notes. Plain data, so the UI consumes it directly.
+- **Providers sign messages, not digests.** The interface names what providers actually do; any hashing is the provider's own and is described in metadata. This is a prerequisite for CMS (Phase 5), where the signed message is the DER of the signed attributes.
+- **Algorithm-agnostic PKI.** Certificate subjects are carried as SubjectPublicKeyInfo bytes (`subjectPublicKey()`), so no per-algorithm WebCrypto import is needed to certify a key. Probed before adoption: `@peculiar/x509` accepts an SPKI `PublicKey` for RSA, ECDSA, Ed25519 and ML-DSA-65 subjects, and OpenSSL 3.5 chain-verifies each with the SPKI byte-identical. WebCrypto parameters remain only for algorithms that act as a CA. The CA's algorithm moved to `lib/pki/policy.ts`, the single allowlisted place outside the crypto layer that names an algorithm.
+- **Algorithm-consistency check (G4).** Verification step 5 now identifies the certificate's key from its material and requires it to agree with both the signature record and the certificate record. A disagreement is a new `INVALID` reason, `ALGORITHM_MISMATCH`, and no cryptographic operation is attempted across algorithms. Signing performs the same check before using a key.
+- **Boundary checker extended to algorithm literals.** Import scanning cannot see `algorithm === "<id>"`. The checker now reads identifiers from the registry and flags any quoted occurrence outside `lib/crypto/` and the policy allowlist. On its first run it flagged its own header comment, which is how the rule was confirmed to work.
+- **Everything outside the crypto layer that named an algorithm was made registry-driven:** the seed fixtures (one certificate and one signed sample per registered algorithm), the signature export script (OpenSSL command from metadata), and four UI pages that crashed on unknown algorithm identifiers (`as never` casts removed).
+
+### Security finding: provider-level algorithm confusion (G14, pre-existing)
+
+**The RSA-PSS and ECDSA providers did not check the type of the key they were given.** OpenSSL follows the key's own type and ignores options that do not apply, so:
+
+| Provider | Given | Result before the fix |
+| --- | --- | --- |
+| RSA-PSS | an ECDSA private key | produced an ECDSA signature |
+| RSA-PSS | a genuine ECDSA signature and the ECDSA public key | returned **valid** |
+| ECDSA | an RSA **PKCS#1 v1.5** signature and the RSA public key | returned **valid** |
+
+Consequence: a document signed under ECDSA whose signature and certificate rows were relabelled `RSA` verified as an authentic RSA-PSS signature. Once a post-quantum algorithm is registered, the same weakness would let a classical signature pass under a post-quantum label. The attacker needs database write access, and the signer identity was not forgeable (the certificate still had to chain to the CA), but the algorithm claim, which is central to this project's crypto-agility and post-quantum claims, was.
+
+Found because a new orchestrator test, which chose its algorithm pair from the registry instead of hard-coding Ed25519, got a signature back instead of an error. Confirmed with plain `node:crypto` calls mirroring the providers exactly.
+
+Fixed at two independent layers: each provider now refuses a key that is not of its own type and parameter set, for both signing and verification; and verification step 5 refuses any disagreement between the key material and the stored labels. Regression evidence:
+
+- `tests/verification/algorithm-confusion.test.ts` recreates the relabelling attack end to end (now `INVALID` / `ALGORITHM_MISMATCH`, with step 7 skipped) and checks each provider directly.
+- `tests/crypto/providers.test.ts` checks every ordered pair of registered algorithms: provider A refuses B's private key, and refuses B's genuine signature presented with B's own public key.
+
+### Demonstrating agility rather than asserting it
+
+`tests/crypto/agility.test.ts` performs the addition the claim describes. It extends the production registry with one entry, a **real ML-DSA-44 provider** (FIPS 204 on OpenSSL 3.5; not in the production registry, not a stub), and then runs the unmodified code end to end: the provider is discovered by every consumer; its keys carry the ML-DSA-44 OID and FIPS 204 sizes (1312-byte public key, 2420-byte signature); a certificate is issued and chain-validates; a document is signed and verifies `VALID`; tampering yields `HASH_MISMATCH`; pointing its signature at a classical certificate yields `ALGORITHM_MISMATCH`; and the boundary checker, now searching for the new identifier too, reports no violations. Nothing below the registry is mocked.
+
+### Metadata as evidence
+
+`tests/crypto/metadata.test.ts` checks every declared value against reality for every registered algorithm: the SPKI OID and public key size parsed from a generated key, the implementation version against the library actually loaded, serialisability, security-class consistency, the issuer capability. Where an `openssl` binary is on the PATH it runs the OpenSSL command each provider declares against a real signature, and requires the same command to reject a one-bit change to the message. On this machine (OpenSSL CLI 3.2.4) that passes for RSA-PSS, ECDSA P-256 and Ed25519.
+
+### Found and fixed during this phase: seeding an existing database failed
+
+Making the fixtures registry-driven changed sample filenames (for example `board-minutes-ecdsa.txt` became `board-minutes-ecdsa-p256.txt`). Running `npm run db:seed` against the existing development database then failed: the fixtures looked samples up by filename, found none, and tried to upload bytes the upload service correctly rejected as a duplicate. That would have broken the documented idempotency of `npm run setup` for anyone upgrading. Fixture seeding had no automated test, which is why the change slipped through.
+
+Samples are now matched by content hash first, the same rule the upload service uses, then by filename. `tests/prisma/fixtures.test.ts` now covers the seed's promises: one signed sample per registered algorithm verifying `VALID` under that algorithm, the tampered sample `INVALID` / `HASH_MISMATCH`, the unsigned sample reported as not signed, an expired certificate, an intact audit chain, idempotent re-seeding, and re-seeding a database whose sample was stored under a legacy filename. The real development database that exposed the problem now seeds cleanly and reports its 34-entry audit chain intact.
+
+### Verification
+
+- `npm test`: **390 passed** across 31 files (319 after Phase 1).
+- `tsc --noEmit`: clean. `npm run lint`: clean. `npm run check:boundary`: clean. `npm run build`: clean, with no import warnings.
+- Over real HTTP against `npm run dev` after all changes: every page returned 200, and the three seeded signed documents verified `VALID` with step 5 reporting that each certificate's key matches its signature and certificate records; the tampered invoice returned `INVALID` / `HASH_MISMATCH`.
+- Browser: the certificates page and the home page render algorithm metadata from the registry (security class, parameters, implementation and version).

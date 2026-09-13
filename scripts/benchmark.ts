@@ -10,8 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { sha256 } from "../lib/crypto/hash";
-import { orchestrator } from "../lib/crypto/orchestrator";
-import { ALGORITHMS, type Algorithm, type KeyPairPem } from "../lib/crypto/types";
+import { ALGORITHMS, orchestrator, type Algorithm, type KeyPairPem } from "../lib/crypto/orchestrator";
 import { prisma } from "../lib/db";
 
 const OUTPUT = path.join(process.cwd(), "public", "benchmarks.json");
@@ -107,8 +106,8 @@ async function main() {
   const results = [];
 
   for (const algorithm of ALGORITHMS) {
-    const description = orchestrator.describe(algorithm);
-    process.stdout.write(`${description.displayName}: keys...`);
+    const metadata = orchestrator.describe(algorithm);
+    process.stdout.write(`${metadata.displayName}: keys...`);
 
     const keyGeneration = await measure(KEYGEN_ITERATIONS, () =>
       orchestrator.generateKeyPair(algorithm),
@@ -120,31 +119,26 @@ async function main() {
       process.stdout.write(` ${payload.label}...`);
 
       const hash = await measure(ITERATIONS, async () => sha256(payload.data));
-      const digest = sha256(payload.data);
+      const message = sha256(payload.data);
 
       const sign = await measure(ITERATIONS, () =>
-        orchestrator.sign({ algorithm, digest, privateKeyPem: keys.privateKeyPem }),
+        orchestrator.sign({ algorithm, message, privateKeyPem: keys.privateKeyPem }),
       );
 
       const signature = await orchestrator.sign({
         algorithm,
-        digest,
+        message,
         privateKeyPem: keys.privateKeyPem,
       });
 
       const verify = await measure(ITERATIONS, () =>
-        orchestrator.verify({
-          algorithm,
-          digest,
-          signature,
-          publicKeyPem: keys.publicKeyPem,
-        }),
+        orchestrator.verify({ algorithm, message, signature, publicKeyPem: keys.publicKeyPem }),
       );
 
       // Guards against timing an operation that silently does nothing useful.
       const verified = await orchestrator.verify({
         algorithm,
-        digest,
+        message,
         signature,
         publicKeyPem: keys.publicKeyPem,
       });
@@ -160,19 +154,21 @@ async function main() {
       });
     }
 
-    const digest = sha256(payloads[0].data);
     const signature = await orchestrator.sign({
       algorithm,
-      digest,
+      message: sha256(payloads[0].data),
       privateKeyPem: keys.privateKeyPem,
     });
 
     results.push({
       algorithm,
-      displayName: description.displayName,
-      description: description.description,
+      displayName: metadata.displayName,
+      description: metadata.description,
+      family: metadata.family,
+      securityClass: metadata.securityClass,
+      implementation: metadata.implementation.version,
       signatureBytes: signature.length,
-      declaredSignatureBytes: description.signatureByteLength,
+      declaredSignatureBytes: metadata.signature.fixedBytes,
       publicKeyPemBytes: Buffer.byteLength(keys.publicKeyPem),
       privateKeyPemBytes: Buffer.byteLength(keys.privateKeyPem),
       certificateDerBytes: certificates[algorithm] ?? null,
@@ -203,10 +199,10 @@ async function main() {
     },
     notes: [
       "Absolute timings depend on this machine; the comparison between algorithms is the point.",
-      "IMPORTANT: the timings compare implementations as much as algorithms. RSA-PSS and ECDSA run in OpenSSL's native code through node:crypto, while Ed25519 runs in pure JavaScript through @noble/ed25519, which CLAUDE.md Section 1 mandates. A native Ed25519 implementation is normally faster than both of the others, so the Ed25519 timings here should be read as 'this library on this runtime', not as a property of EdDSA.",
+      "IMPORTANT: the timings compare implementations as much as algorithms. Algorithms implemented through node:crypto run in OpenSSL's native code, while Ed25519 runs in pure JavaScript through @noble/ed25519, which CLAUDE.md Section 1 mandates. A native Ed25519 implementation is normally faster than RSA and ECDSA, so the Ed25519 timings here should be read as 'this library on this runtime', not as a property of EdDSA.",
       "Sign and verify operate on the 32-byte SHA-256 digest, so their cost does not vary with document size. The hash column is where document size shows up.",
       "The size columns (signature, key, certificate) are properties of the algorithms themselves and are not affected by the implementation difference above.",
-      "RSA-PSS and ECDSA are randomised, Ed25519 is deterministic; this affects repeatability of the output, not the timings.",
+      "Randomised and deterministic signing schemes are listed in each algorithm's metadata; this affects repeatability of the output, not the timings.",
       "Certificate sizes are DER byte lengths of certificates actually issued by this installation's CA, read from the database. They are null if none have been issued yet.",
     ],
     algorithms: results,

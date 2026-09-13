@@ -1,8 +1,11 @@
 import {
   constants,
+  createPrivateKey,
+  createPublicKey,
   generateKeyPair as generateKeyPairCb,
   sign as signSync,
   verify as verifySync,
+  type KeyObject,
   type RSAKeyPairOptions,
 } from "node:crypto";
 import { promisify } from "node:util";
@@ -14,28 +17,95 @@ const generateRsaKeyPair = promisify(generateKeyPairCb) as (
 ) => Promise<{ publicKey: string; privateKey: string }>;
 
 const MODULUS_BITS = 3072;
+const SALT_BYTES = 32;
 
 const PSS_OPTIONS = {
   padding: constants.RSA_PKCS1_PSS_PADDING,
-  saltLength: constants.RSA_PSS_SALTLEN_DIGEST,
+  saltLength: SALT_BYTES,
 } as const;
 
-export const rsaProvider: SignatureProvider = {
-  algorithm: "RSA",
-  displayName: `RSA-PSS ${MODULUS_BITS}`,
-  description:
-    `RSASSA-PSS, ${MODULUS_BITS}-bit modulus, SHA-256 with a digest-length salt (MGF1/SHA-256). ` +
-    "Randomised: signing the same digest twice yields two different signatures, both valid.",
-  signatureByteLength: MODULUS_BITS / 8,
+function isOwnKey(key: KeyObject): boolean {
+  return key.asymmetricKeyType === "rsa" && key.asymmetricKeyDetails?.modulusLength === MODULUS_BITS;
+}
 
-  webCrypto: {
-    keyImport: {
-      name: "RSA-PSS",
-      hash: "SHA-256",
-      modulusLength: MODULUS_BITS,
-      publicExponent: new Uint8Array([1, 0, 1]),
+// OpenSSL follows the type of the key it is given and silently ignores the PSS options for
+// a non-RSA key, so an ECDSA key passed here would produce, or accept, an ECDSA signature.
+// Checking the key type is what keeps this provider RSA-PSS and nothing else.
+function ownPrivateKey(privateKeyPem: string): KeyObject {
+  const key = createPrivateKey(privateKeyPem);
+  if (!isOwnKey(key)) throw new Error(`Not an RSA-${MODULUS_BITS} private key`);
+  return key;
+}
+
+function ownPublicKey(publicKeyPem: string): KeyObject {
+  const key = createPublicKey(publicKeyPem);
+  if (!isOwnKey(key)) throw new Error(`Not an RSA-${MODULUS_BITS} public key`);
+  return key;
+}
+
+export const rsaProvider = {
+  metadata: {
+    id: "RSA",
+    displayName: `RSA-PSS ${MODULUS_BITS}`,
+    family: "RSA",
+    securityClass: "classical",
+    description:
+      `RSASSA-PSS with a ${MODULUS_BITS}-bit modulus, SHA-256, MGF1-SHA-256 and a ${SALT_BYTES}-byte salt. ` +
+      "Randomised: signing the same message twice yields two different signatures, both valid.",
+    standards: ["RFC 8017 (PKCS #1 v2.2, RSASSA-PSS)", "FIPS 186-5", "RFC 4055 (RSASSA-PSS in X.509)"],
+    securityLevel: {
+      classicalBits: 128,
+      nistPqCategory: null,
+      basis: "NIST SP 800-57 Part 1 Rev. 5, Table 2: a 3072-bit RSA modulus provides about 128 bits of security",
     },
-    signing: { name: "RSA-PSS", hash: "SHA-256", saltLength: 32 },
+    quantumResistance:
+      "None. Shor's algorithm on a cryptographically relevant quantum computer recovers the private key.",
+    implementation: {
+      library: "node:crypto",
+      backend: "OpenSSL (native code)",
+      version: `OpenSSL ${process.versions.openssl}`,
+    },
+    parameters: `${MODULUS_BITS}-bit modulus, public exponent 65537, SHA-256, MGF1-SHA-256, ${SALT_BYTES}-byte salt`,
+    messageProcessing: "SHA-256 over the supplied message, then EMSA-PSS encoding and the RSA private-key operation",
+    deterministic: false,
+    keySizes: {
+      publicKeyBytes: 398,
+      publicKeyEncoding: "RSAPublicKey DER: SEQUENCE { modulus INTEGER, publicExponent INTEGER }",
+    },
+    signature: {
+      fixedBytes: MODULUS_BITS / 8,
+      maxBytes: MODULUS_BITS / 8,
+      encoding: "Big-endian integer the length of the modulus (RFC 8017 I2OSP)",
+    },
+    serialization: {
+      publicKey: "SubjectPublicKeyInfo (RFC 5280), PEM",
+      privateKey: "PKCS #8 (RFC 5208), PEM",
+    },
+    oids: {
+      publicKey: "1.2.840.113549.1.1.1",
+      signature: "1.2.840.113549.1.1.10",
+    },
+    interoperability: {
+      opensslVerify:
+        "openssl dgst -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:32 -verify {publicKey} -signature {signature} {message}",
+      note: "OpenSSL 1.1.1 or later.",
+    },
+    capabilities: {
+      generateKeyPair: true,
+      sign: true,
+      verify: true,
+      x509Subject: true,
+      x509Issuer: true,
+    },
+    securityNotes: [
+      "Key generation searches for large primes and is orders of magnitude slower than elliptic-curve key generation.",
+      "Signatures and public keys are several times larger than the elliptic-curve alternatives at the same security level.",
+    ],
+  },
+
+  certificateSigning: {
+    keyImport: { name: "RSA-PSS", hash: "SHA-256" },
+    signing: { name: "RSA-PSS", hash: "SHA-256", saltLength: SALT_BYTES },
   },
 
   async generateKeyPair(): Promise<KeyPairPem> {
@@ -47,11 +117,24 @@ export const rsaProvider: SignatureProvider = {
     return { publicKeyPem: publicKey, privateKeyPem: privateKey };
   },
 
-  async sign(digest, privateKeyPem) {
-    return signSync("sha256", digest, { key: privateKeyPem, ...PSS_OPTIONS });
+  async sign(message, privateKeyPem) {
+    return signSync("sha256", message, { key: ownPrivateKey(privateKeyPem), ...PSS_OPTIONS });
   },
 
-  async verify(digest, signature, publicKeyPem) {
-    return verifySync("sha256", digest, { key: publicKeyPem, ...PSS_OPTIONS }, signature);
+  async verify(message, signature, publicKeyPem) {
+    return verifySync(
+      "sha256",
+      message,
+      { key: ownPublicKey(publicKeyPem), ...PSS_OPTIONS },
+      signature,
+    );
   },
-};
+
+  identifiesPublicKey(publicKeyPem) {
+    try {
+      return isOwnKey(createPublicKey(publicKeyPem));
+    } catch {
+      return false;
+    }
+  },
+} satisfies SignatureProvider<"RSA">;

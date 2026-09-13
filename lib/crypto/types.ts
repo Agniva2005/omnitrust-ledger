@@ -1,22 +1,8 @@
-// Cryptographic Orchestration layer contract.
+// Cryptographic Orchestration layer contract: types only.
 //
-// Everything above this layer (documents, PKI, API routes, UI) speaks only in terms
-// of `Algorithm` and `SignatureProvider`. Nothing above this layer may import
-// node:crypto signing primitives or @noble/*; scripts/check-crypto-boundary.ts
-// enforces that, per CLAUDE.md Section 2 rule 2.
-
-export const ALGORITHMS = ["RSA", "ECDSA_P256", "ED25519"] as const;
-
-export type Algorithm = (typeof ALGORITHMS)[number];
-
-export function isAlgorithm(value: unknown): value is Algorithm {
-  return typeof value === "string" && (ALGORITHMS as readonly string[]).includes(value);
-}
-
-export function assertAlgorithm(value: unknown): Algorithm {
-  if (!isAlgorithm(value)) throw new Error(`Unsupported algorithm: ${String(value)}`);
-  return value;
-}
+// Everything above this layer (documents, PKI, API routes, UI) reaches algorithms
+// through lib/crypto/orchestrator.ts and never names one. Algorithm-specific code lives
+// only in lib/crypto/providers/; scripts/check-crypto-boundary.ts enforces that.
 
 export type KeyPairPem = {
   /** SubjectPublicKeyInfo, PEM-encoded. */
@@ -25,53 +11,107 @@ export type KeyPairPem = {
   privateKeyPem: string;
 };
 
+export type AlgorithmFamily = "RSA" | "ECDSA" | "EdDSA" | "ML-DSA";
+
+export type SecurityClass = "classical" | "post-quantum";
+
 /**
- * Parameters the PKI layer hands to @peculiar/x509 when it builds and signs a
- * certificate. Declared per provider so that lib/pki never names an algorithm.
+ * Declarative description of a provider. Every field is plain data so it can be sent to
+ * the browser, and every numeric claim is checked against real key material and real
+ * signatures by tests/crypto/metadata.test.ts.
  */
-export type WebCryptoParams = {
-  /** For importing/generating the subject key. */
-  keyImport: { name: string; namedCurve?: string; hash?: string; publicExponent?: Uint8Array; modulusLength?: number };
-  /** For the signature over the certificate TBS bytes. */
+export type AlgorithmMetadata<Id extends string = string> = {
+  /** Registry key, stored with certificates and signatures. */
+  id: Id;
+  displayName: string;
+  family: AlgorithmFamily;
+  securityClass: SecurityClass;
+  description: string;
+  standards: readonly string[];
+  securityLevel: {
+    /** Estimated classical security strength in bits, or null where a PQ category is the stated measure. */
+    classicalBits: number | null;
+    /** NIST post-quantum security category (1-5), or null for classical algorithms. */
+    nistPqCategory: number | null;
+    basis: string;
+  };
+  quantumResistance: string;
+  implementation: {
+    library: string;
+    backend: string;
+    version: string;
+  };
+  parameters: string;
+  /** How the supplied message is processed before the signature primitive runs. */
+  messageProcessing: string;
+  deterministic: boolean;
+  keySizes: {
+    /** Length of the subjectPublicKey BIT STRING contents inside the SubjectPublicKeyInfo. */
+    publicKeyBytes: number;
+    publicKeyEncoding: string;
+  };
+  signature: {
+    /** Exact length when the encoding is fixed, otherwise null. */
+    fixedBytes: number | null;
+    maxBytes: number;
+    encoding: string;
+  };
+  serialization: {
+    publicKey: string;
+    privateKey: string;
+  };
+  oids: {
+    publicKey: string;
+    signature: string;
+  };
+  interoperability: {
+    /**
+     * An OpenSSL CLI command that independently verifies a signature produced by this
+     * provider, with {publicKey}, {message} and {signature} standing for file paths. Null
+     * when the OpenSSL CLI cannot do it. Exercised by tests/crypto/metadata.test.ts
+     * whenever an `openssl` binary is available.
+     */
+    opensslVerify: string | null;
+    note: string;
+  };
+  capabilities: {
+    generateKeyPair: boolean;
+    sign: boolean;
+    verify: boolean;
+    /** Keys of this algorithm can be certified in an X.509 certificate issued by this installation's CA. */
+    x509Subject: boolean;
+    /** This algorithm can sign X.509 certificates, i.e. act as a certificate authority here. */
+    x509Issuer: boolean;
+  };
+  securityNotes: readonly string[];
+};
+
+/** WebCrypto parameters for signing certificates, for algorithms that can act as a CA. */
+export type CertificateSigningParams = {
+  keyImport: { name: string; namedCurve?: string; hash?: string };
   signing: { name: string; hash?: string; saltLength?: number };
 };
 
-export interface SignatureProvider {
-  readonly algorithm: Algorithm;
-  /** Short label for the UI, e.g. "RSA-PSS 3072". */
-  readonly displayName: string;
-  /** Precise description of the construction, shown in the UI and benchmark table. */
-  readonly description: string;
-  /** Byte length of a signature, or null when the encoding makes it variable (ECDSA DER). */
-  readonly signatureByteLength: number | null;
-  readonly webCrypto: WebCryptoParams;
+export interface SignatureProvider<Id extends string = string> {
+  readonly metadata: AlgorithmMetadata<Id>;
+
+  /** Present exactly when metadata.capabilities.x509Issuer is true. */
+  readonly certificateSigning: CertificateSigningParams | null;
 
   generateKeyPair(): Promise<KeyPairPem>;
 
   /**
-   * Signs a digest. Callers pass the SHA-256 of the document (Phase 5 signs "the
-   * current document hash"), so the signed payload is 32 bytes, identical across
-   * all three algorithms.
+   * Signs an arbitrary message. Any hashing is the algorithm's own and is described by
+   * metadata.messageProcessing; callers never pre-hash on a provider's behalf.
    */
-  sign(digest: Uint8Array, privateKeyPem: string): Promise<Buffer>;
+  sign(message: Uint8Array, privateKeyPem: string): Promise<Buffer>;
 
-  /** Never throws on a bad signature: returns false. Throws only on malformed keys. */
-  verify(digest: Uint8Array, signature: Uint8Array, publicKeyPem: string): Promise<boolean>;
-}
+  /** Returns false for a signature that does not verify; throws only for an unusable key. */
+  verify(message: Uint8Array, signature: Uint8Array, publicKeyPem: string): Promise<boolean>;
 
-export const PEM_PUBLIC_HEADER = "-----BEGIN PUBLIC KEY-----";
-export const PEM_PRIVATE_HEADER = "-----BEGIN PRIVATE KEY-----";
-
-export function pemBody(pem: string): Buffer {
-  const base64 = pem
-    .split(/\r?\n/)
-    .filter((line) => !line.startsWith("-----"))
-    .join("");
-  return Buffer.from(base64, "base64");
-}
-
-export function toPem(label: "PUBLIC KEY" | "PRIVATE KEY", der: Uint8Array): string {
-  const base64 = Buffer.from(der).toString("base64");
-  const lines = base64.match(/.{1,64}/g) ?? [];
-  return `-----BEGIN ${label}-----\n${lines.join("\n")}\n-----END ${label}-----\n`;
+  /**
+   * True when the key is of exactly this algorithm and parameter set (for example RSA with
+   * this modulus size, or ECDSA on this curve). Never throws.
+   */
+  identifiesPublicKey(publicKeyPem: string): boolean;
 }

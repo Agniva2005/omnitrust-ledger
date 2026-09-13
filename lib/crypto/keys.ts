@@ -1,22 +1,17 @@
-// WebCrypto key handling for the PKI layer.
+// X.509 key handling for the PKI layer.
 //
-// Lives in lib/crypto because node:crypto's webcrypto/subtle are cryptographic
-// primitives and Section 2 rule 2 keeps those out of every other layer. The PKI
-// layer calls these functions and never sees a raw algorithm name.
+// Lives in lib/crypto because WebCrypto key import and SubjectPublicKeyInfo handling are
+// cryptographic concerns the boundary rule keeps out of other layers. The PKI layer calls
+// these functions with an algorithm identifier and never names an algorithm itself.
 //
-// `Algorithm` here is the global WebCrypto type; ours is aliased to SignatureAlgorithm.
+// `Algorithm` in this file is the global WebCrypto type; ours is SignatureAlgorithm.
 import { webcrypto } from "node:crypto";
 import * as x509 from "@peculiar/x509";
-import { providerFor } from "@/lib/crypto/orchestrator";
-import { toPem, type Algorithm as SignatureAlgorithm } from "@/lib/crypto/types";
+import { providerFor, type Algorithm as SignatureAlgorithm } from "@/lib/crypto/orchestrator";
+import { pemBody, toPem } from "@/lib/crypto/pem";
+import type { CertificateSigningParams } from "@/lib/crypto/types";
 
-type WebCryptoKeyParams = Algorithm & {
-  hash?: string;
-  namedCurve?: string;
-  saltLength?: number;
-  modulusLength?: number;
-  publicExponent?: Uint8Array;
-};
+type WebCryptoParams = Algorithm & { hash?: string; namedCurve?: string; saltLength?: number };
 
 let configured = false;
 
@@ -27,44 +22,60 @@ export function configureCertificateProvider() {
   configured = true;
 }
 
-function importParams(algorithm: SignatureAlgorithm): WebCryptoKeyParams {
-  return providerFor(algorithm).webCrypto.keyImport as WebCryptoKeyParams;
+function issuerParams(algorithm: SignatureAlgorithm): CertificateSigningParams {
+  const provider = providerFor(algorithm);
+  if (!provider.certificateSigning) {
+    throw new Error(
+      `${provider.metadata.displayName} cannot act as a certificate issuer in this installation`,
+    );
+  }
+  return provider.certificateSigning;
 }
 
-/** Signing algorithm parameters for the signature over a certificate's TBS bytes. */
-export function certificateSigningAlgorithm(algorithm: SignatureAlgorithm): WebCryptoKeyParams {
-  return providerFor(algorithm).webCrypto.signing as WebCryptoKeyParams;
+/** Parameters for an issuer's signature over a certificate's to-be-signed bytes. */
+export function certificateSigningAlgorithm(algorithm: SignatureAlgorithm): WebCryptoParams {
+  return issuerParams(algorithm).signing as WebCryptoParams;
 }
 
-export async function importPrivateKey(
+export async function importIssuerPrivateKey(
   algorithm: SignatureAlgorithm,
   privateKeyPem: string,
 ): Promise<CryptoKey> {
   configureCertificateProvider();
-  return webcrypto.subtle.importKey("pkcs8", pemDer(privateKeyPem), importParams(algorithm), false, [
-    "sign",
-  ]);
+  return webcrypto.subtle.importKey(
+    "pkcs8",
+    new Uint8Array(pemBody(privateKeyPem)),
+    issuerParams(algorithm).keyImport as WebCryptoParams,
+    false,
+    ["sign"],
+  );
 }
 
-export async function importPublicKey(
+export async function importIssuerPublicKey(
   algorithm: SignatureAlgorithm,
   publicKeyPem: string,
 ): Promise<CryptoKey> {
   configureCertificateProvider();
-  return webcrypto.subtle.importKey("spki", pemDer(publicKeyPem), importParams(algorithm), true, [
-    "verify",
-  ]);
+  return webcrypto.subtle.importKey(
+    "spki",
+    new Uint8Array(pemBody(publicKeyPem)),
+    issuerParams(algorithm).keyImport as WebCryptoParams,
+    true,
+    ["verify"],
+  );
 }
 
-function pemDer(pem: string): Uint8Array {
-  const base64 = pem
-    .split(/\r?\n/)
-    .filter((line) => !line.startsWith("-----"))
-    .join("");
-  return new Uint8Array(Buffer.from(base64, "base64"));
+/**
+ * A certificate subject's public key, carried as its SubjectPublicKeyInfo bytes. This
+ * needs no algorithm-specific import parameters, so any registered algorithm can be
+ * certified, including ones WebCrypto cannot import.
+ */
+export function subjectPublicKey(publicKeyPem: string): x509.PublicKey {
+  configureCertificateProvider();
+  return new x509.PublicKey(new Uint8Array(pemBody(publicKeyPem)));
 }
 
 /** Re-encodes a SubjectPublicKeyInfo DER blob (as carried in a certificate) as PEM. */
 export function spkiDerToPem(der: ArrayBuffer | Uint8Array): string {
-  return toPem("PUBLIC KEY", der instanceof Uint8Array ? der : new Uint8Array(der));
+  return toPem("PUBLIC KEY", der);
 }

@@ -1,5 +1,11 @@
 // Enforces CLAUDE.md Section 2 rule 2: no algorithm-specific code outside /lib/crypto/.
 //
+// Two kinds of violation are detected:
+//   1. Imports of cryptographic libraries or primitives into any other layer.
+//   2. Algorithm identifiers written as string literals in any other layer. Import scanning
+//      alone cannot see a comparison against an algorithm's name; this can, because the identifiers are
+//      read from the provider registry rather than hard-coded here.
+//
 // Run directly (`npm run check:boundary`) or via tests/crypto/boundary.test.ts, which
 // fails the suite on any violation.
 //
@@ -9,8 +15,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ALGORITHMS } from "../lib/crypto/orchestrator";
 
 const SCANNED_ROOTS = ["app", "lib", "components", "prisma", "scripts"];
+const SCANNED_ROOT_FILES = ["middleware.ts"];
 
 /** Directories permitted to contain algorithm-specific code, relative to the repo root. */
 const CRYPTO_LAYER = ["lib/crypto"];
@@ -18,6 +26,16 @@ const CRYPTO_LAYER = ["lib/crypto"];
 /** X.509 encoding belongs to the PKI layer; the algorithm parameters it passes in come
  *  from the orchestrator, so it never names an algorithm itself. */
 const X509_ALLOWED = ["lib/crypto", "lib/pki"];
+
+/**
+ * Files outside lib/crypto allowed to name an algorithm, each with the reason. Keep this
+ * list short: every entry is a place where adding or removing a provider could require an
+ * edit outside the crypto layer.
+ */
+export const ALGORITHM_LITERAL_ALLOWLIST: Record<string, string> = {
+  "lib/pki/policy.ts":
+    "Chooses which registered algorithm the local CA signs with: a policy value, not algorithm-specific logic.",
+};
 
 /** node:crypto exports that perform or configure signature/cipher/digest operations. */
 const FORBIDDEN_NODE_CRYPTO_SYMBOLS = [
@@ -78,12 +96,25 @@ function isWithin(file: string, directories: string[]): boolean {
   return directories.some((directory) => file.startsWith(`${directory}/`));
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function findBoundaryViolations(): Violation[] {
   const violations: Violation[] = [];
-  const files = SCANNED_ROOTS.flatMap(listFiles);
+  const files = [
+    ...SCANNED_ROOTS.flatMap(listFiles),
+    ...SCANNED_ROOT_FILES.filter((file) => fs.existsSync(path.join(process.cwd(), file))),
+  ];
+
+  const literalPatterns = ALGORITHMS.map((algorithm) => ({
+    algorithm,
+    pattern: new RegExp(`(["'\`])${escapeRegExp(algorithm)}\\1`),
+  }));
 
   for (const file of files) {
     const inCryptoLayer = isWithin(file, CRYPTO_LAYER);
+    const literalAllowed = inCryptoLayer || file in ALGORITHM_LITERAL_ALLOWLIST;
     const lines = fs.readFileSync(path.join(process.cwd(), file), "utf8").split(/\r?\n/);
 
     lines.forEach((line, index) => {
@@ -92,6 +123,18 @@ export function findBoundaryViolations(): Violation[] {
         /(?:from|import|require)\s*\(?\s*["']([^"']+)["']/,
       );
       const moduleName = moduleMatch?.[1];
+
+      if (!literalAllowed) {
+        for (const { algorithm, pattern } of literalPatterns) {
+          if (pattern.test(line)) {
+            violations.push({
+              file,
+              line: lineNumber,
+              detail: `names the algorithm "${algorithm}" as a literal; resolve algorithms through the orchestrator instead`,
+            });
+          }
+        }
+      }
 
       if (moduleName?.startsWith("@noble/") && !inCryptoLayer) {
         violations.push({
@@ -151,7 +194,9 @@ export function findBoundaryViolations(): Violation[] {
 function main() {
   const violations = findBoundaryViolations();
   if (violations.length === 0) {
-    console.log("Crypto boundary OK: no algorithm-specific imports outside lib/crypto/.");
+    console.log(
+      "Crypto boundary OK: no algorithm-specific imports or algorithm literals outside lib/crypto/.",
+    );
     return;
   }
   console.error(`Crypto boundary violated (${violations.length}):\n`);

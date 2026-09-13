@@ -3,11 +3,11 @@ import { z } from "zod";
 import { errorResponse } from "@/lib/api";
 import { AuthenticationError } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
-import { ALGORITHMS } from "@/lib/crypto/types";
+import { ALGORITHMS, isAlgorithm } from "@/lib/crypto/orchestrator";
 import { issueCertificate, listCertificates } from "@/lib/pki/certificates";
 
 const schema = z.object({
-  algorithm: z.enum(ALGORITHMS),
+  algorithm: z.string().refine(isAlgorithm),
   subjectUserId: z.string().optional(),
   validityDays: z.number().int().min(1).max(3650).optional(),
 });

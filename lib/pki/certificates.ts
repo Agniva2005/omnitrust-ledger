@@ -4,14 +4,9 @@ import * as x509 from "@peculiar/x509";
 import { BadRequestError, NotFoundError } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
 import { AuthorizationError, requireCapability, type Actor } from "@/lib/auth/rbac";
-import {
-  configureCertificateProvider,
-  importPublicKey,
-  spkiDerToPem,
-} from "@/lib/crypto/keys";
-import { orchestrator } from "@/lib/crypto/orchestrator";
+import { configureCertificateProvider, spkiDerToPem, subjectPublicKey } from "@/lib/crypto/keys";
+import { assertAlgorithm, orchestrator, type Algorithm } from "@/lib/crypto/orchestrator";
 import { decryptString, encryptString } from "@/lib/crypto/symmetric";
-import { assertAlgorithm, type Algorithm } from "@/lib/crypto/types";
 import { prisma } from "@/lib/db";
 import { caCertificate, caSigningAlgorithm, caSigningKey, getRootCa } from "@/lib/pki/ca";
 import {
@@ -48,6 +43,13 @@ export async function issueCertificate(
   configureCertificateProvider();
 
   const algorithm = assertAlgorithm(input.algorithm);
+  const metadata = orchestrator.describe(algorithm);
+  if (!metadata.capabilities.x509Subject) {
+    throw new BadRequestError(
+      `${metadata.displayName} keys cannot be certified by this installation's CA`,
+    );
+  }
+
   const subjectUserId = input.subjectUserId ?? input.actor.userId;
 
   if (subjectUserId !== input.actor.userId && input.actor.role !== "ADMIN") {
@@ -74,6 +76,11 @@ export async function issueCertificate(
   }
 
   const keys = await orchestrator.generateKeyPair(algorithm);
+  // A provider that generates a key it does not itself recognise is misconfigured; never
+  // certify a key under a label its own material contradicts.
+  if (orchestrator.identifyPublicKey(keys.publicKeyPem) !== algorithm) {
+    throw new Error(`Generated key does not identify as ${algorithm}`);
+  }
 
   const keyPair = await prisma.keyPair.create({
     data: {
@@ -92,7 +99,7 @@ export async function issueCertificate(
     notBefore,
     notAfter,
     signingKey: await caSigningKey(ca),
-    publicKey: await importPublicKey(algorithm, keys.publicKeyPem),
+    publicKey: subjectPublicKey(keys.publicKeyPem),
     signingAlgorithm: caSigningAlgorithm(ca),
     extensions: [
       new x509.BasicConstraintsExtension(false, undefined, true),

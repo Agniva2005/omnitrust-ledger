@@ -18,6 +18,10 @@ const LAYERS = [
   { name: "Audit & Monitoring", detail: "Append-only hash-chained log", folder: "lib/audit/" },
 ];
 
+function signatureSize(fixedBytes: number | null, maxBytes: number) {
+  return fixedBytes === null ? `up to ${maxBytes}-byte signatures` : `${fixedBytes}-byte signatures`;
+}
+
 export default function HomePage() {
   const algorithms = orchestrator.describeAll();
 
@@ -38,19 +42,19 @@ export default function HomePage() {
         <CardHeader>
           <CardTitle>Signature algorithms</CardTitle>
           <CardDescription>
-            Read from the orchestrator&apos;s registry at render time. Adding a fourth algorithm
-            means one new provider file and one registry line; this page would pick it up without
-            being edited.
+            Read from the provider registry at render time. Adding an algorithm is one provider
+            file and one registry entry; this page picks it up without being edited, and an
+            automated test proves the rest of the system does too.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {algorithms.map((algorithm) => (
-            <div key={algorithm.algorithm} className="flex flex-wrap items-baseline gap-2">
+            <div key={algorithm.id} className="flex flex-wrap items-baseline gap-2">
               <Badge variant="secondary">{algorithm.displayName}</Badge>
+              <Badge variant="outline">{algorithm.securityClass}</Badge>
               <span className="text-xs text-muted-foreground">
-                {algorithm.signatureByteLength
-                  ? `${algorithm.signatureByteLength}-byte signatures`
-                  : "variable-length signatures"}
+                {signatureSize(algorithm.signature.fixedBytes, algorithm.signature.maxBytes)},{" "}
+                {algorithm.implementation.version}
               </span>
             </div>
           ))}
@@ -87,7 +91,7 @@ export default function HomePage() {
         <code className="rounded bg-muted px-1 py-0.5 text-xs">
           npm run export:signature -- &lt;document&gt;
         </code>{" "}
-        to verify any stored signature with OpenSSL, outside this application. See{" "}
+        to verify a stored signature with the OpenSSL command line, outside this application. See{" "}
         <code className="rounded bg-muted px-1 py-0.5 text-xs">README.md</code> for the
         limitations that keep this a demonstrator rather than a production system.
       </p>

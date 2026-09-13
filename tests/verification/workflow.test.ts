@@ -3,14 +3,17 @@
 import fs from "node:fs/promises";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AuthorizationError, type Actor } from "@/lib/auth/rbac";
-import { orchestrator } from "@/lib/crypto/orchestrator";
+import { ALGORITHMS, orchestrator, type Algorithm } from "@/lib/crypto/orchestrator";
 import { encrypt } from "@/lib/crypto/symmetric";
-import { ALGORITHMS, type Algorithm } from "@/lib/crypto/types";
 import { prisma } from "@/lib/db";
 import { uploadDocument } from "@/lib/documents/service";
 import { absolutePath, writeBlob } from "@/lib/documents/storage";
 import { signDocument } from "@/lib/documents/signing";
-import { DocumentNotSignedError, verifyDocument } from "@/lib/documents/verification";
+import {
+  DocumentNotSignedError,
+  verifyDocument,
+  type VerificationResult,
+} from "@/lib/documents/verification";
 import { ensureRootCa } from "@/lib/pki/ca";
 import { issueCertificate, revokeCertificate } from "@/lib/pki/certificates";
 import { seedUsers } from "@/prisma/fixtures";
@@ -60,6 +63,10 @@ async function uploadAndSign(
   });
   await signDocument({ actor: signer, documentId: document.id, certificateId });
   return document;
+}
+
+function statusOf(result: VerificationResult, prefix: string) {
+  return result.steps.find((step) => step.step.startsWith(prefix))?.status;
 }
 
 describe("the happy path", () => {
@@ -270,7 +277,7 @@ describe("Phase 6 case 4: corrupted signature bytes", () => {
 
 describe("Phase 6 case 5: substituting another algorithm's public key", () => {
   it.each(ALGORITHMS)(
-    "a %s-signed document fails when the certificate carries a different algorithm's key",
+    "a %s-signed document pointed at another algorithm's certificate is refused as ALGORITHM_MISMATCH",
     async (algorithm) => {
       const document = await uploadAndSign(algorithm, `Key substitution test (${algorithm}).`);
       expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
@@ -289,26 +296,50 @@ describe("Phase 6 case 5: substituting another algorithm's public key", () => {
 
       const result = await verifyDocument(verifier, document.id);
       expect(result.outcome).toBe("INVALID");
-      expect(result.reason).toBe("SIGNATURE_INVALID");
-      expect(result.steps.find((step) => step.step.startsWith("7."))?.passed).toBe(false);
+      expect(result.reason).toBe("ALGORITHM_MISMATCH");
+      expect(statusOf(result, "5.")).toBe("FAIL");
+      // No cryptographic operation is attempted with a key of the wrong algorithm.
+      expect(statusOf(result, "7.")).toBe("SKIPPED");
     },
   );
 
-  it("does not throw when the substituted key is structurally wrong for the algorithm", async () => {
-    // Ed25519 keys are 32 bytes and RSA keys are not: the provider is handed something
-    // it cannot use at all. That must surface as INVALID, not as a crash.
-    const document = await uploadAndSign("RSA", "Structurally incompatible key.");
+  it("is not fooled by relabelling the substituted certificate's database row to match", async () => {
+    const document = await uploadAndSign("RSA", "Relabelled certificate.");
+    const impostor = await issueCertificate({ actor: signer, algorithm: "ED25519" });
+    await prisma.certificate.update({ where: { id: impostor.id }, data: { algorithm: "RSA" } });
+
     const signature = await prisma.signature.findFirstOrThrow({
       where: { documentVersion: { documentId: document.id } },
     });
     await prisma.signature.update({
       where: { id: signature.id },
-      data: { certificateId: certificates.ED25519.id },
+      data: { certificateId: impostor.id },
+    });
+
+    const result = await verifyDocument(verifier, document.id);
+    expect(result.reason).toBe("ALGORITHM_MISMATCH");
+    expect(result.steps.find((step) => step.step.startsWith("5."))?.detail).toContain(
+      "carries a ED25519 key",
+    );
+  });
+
+  it("still fails cryptographically when every label is forged to agree", async () => {
+    // Signature record, certificate record and key now all say ED25519, but the signature
+    // bytes are an RSA signature: consistency passes and the cryptography refuses.
+    const document = await uploadAndSign("RSA", "Every label forged.");
+    const signature = await prisma.signature.findFirstOrThrow({
+      where: { documentVersion: { documentId: document.id } },
+    });
+    await prisma.signature.update({
+      where: { id: signature.id },
+      data: { certificateId: certificates.ED25519.id, algorithm: "ED25519" },
     });
 
     const result = await verifyDocument(verifier, document.id);
     expect(result.outcome).toBe("INVALID");
     expect(result.reason).toBe("SIGNATURE_INVALID");
+    expect(statusOf(result, "5.")).toBe("PASS");
+    expect(statusOf(result, "7.")).toBe("FAIL");
   });
 });
 

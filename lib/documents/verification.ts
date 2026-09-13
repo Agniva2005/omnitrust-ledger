@@ -12,9 +12,8 @@ import { NotFoundError, redactErrorForLog } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
 import { requireCapability, type Actor } from "@/lib/auth/rbac";
 import { sha256Hex } from "@/lib/crypto/hash";
-import { orchestrator } from "@/lib/crypto/orchestrator";
+import { isAlgorithm, orchestrator } from "@/lib/crypto/orchestrator";
 import { DecryptionIntegrityError } from "@/lib/crypto/symmetric";
-import { isAlgorithm } from "@/lib/crypto/types";
 import { prisma } from "@/lib/db";
 import { assertDocumentState, canTransition } from "@/lib/documents/lifecycle";
 import { readBlob } from "@/lib/documents/storage";
@@ -25,14 +24,17 @@ import { validateCertificate } from "@/lib/pki/validation";
 export type VerificationOutcome = "VALID" | "INVALID" | "UNVERIFIABLE" | "ERROR";
 
 /**
- * In precedence order. Certificate problems outrank content problems, and a hash
- * mismatch outranks an invalid signature: when the bytes have changed the signature
- * necessarily fails too, and "the document was altered" is the more precise diagnosis.
+ * In precedence order. Certificate problems come first. An algorithm mismatch comes next:
+ * a signature whose record, certificate and key disagree about the algorithm cannot be a
+ * signature under that certificate at all. Then a hash mismatch outranks an invalid
+ * signature: when the bytes have changed the signature necessarily fails too, and "the
+ * document was altered" is the more precise diagnosis.
  */
 export const INVALID_REASONS = [
   "CERTIFICATE_CHAIN_INVALID",
   "CERTIFICATE_EXPIRED",
   "CERTIFICATE_REVOKED",
+  "ALGORITHM_MISMATCH",
   "HASH_MISMATCH",
   "SIGNATURE_INVALID",
 ] as const;
@@ -119,7 +121,7 @@ const STEP = {
   signature: "2. Retrieve signature record",
   certificate: "3. Retrieve signing certificate",
   validation: "4. Validate certificate: chain to local CA, validity period, revocation",
-  publicKey: "5. Extract public key from certificate",
+  publicKey: "5. Extract public key from certificate and confirm its algorithm",
   recompute: "6. Recompute SHA-256 from the stored bytes",
   verify: "7. Verify signature against the recomputed hash",
   compare: "8. Compare recomputed hash with the hash that was signed",
@@ -208,19 +210,48 @@ export async function verifyDocument(
       record(STEP.validation, "SKIPPED", "there is no certificate to validate");
     }
 
-    // --- Step 5: extract the public key from the certificate itself ---
+    // --- Step 5: extract the key from the certificate, and confirm what algorithm it is ---
+    // The key material decides the algorithm. If the signature record, the certificate
+    // record and the key itself disagree, no cryptographic operation is attempted: that is
+    // how an algorithm-confusion or substitution attack would present.
     let publicKeyPem: string | null = null;
     if (certificate) {
+      let extracted: string | null = null;
       try {
-        publicKeyPem = publicKeyPemFromCertificate(certificate.certPem);
-        record(
-          STEP.publicKey,
-          "PASS",
-          "SubjectPublicKeyInfo extracted from the certificate, not from the key-pair record",
-        );
+        extracted = publicKeyPemFromCertificate(certificate.certPem);
       } catch (error) {
         record(STEP.publicKey, "FAIL", error instanceof Error ? error.message : String(error));
         reasons.push("CERTIFICATE_CHAIN_INVALID");
+      }
+
+      if (extracted && !isAlgorithm(signature.algorithm)) {
+        publicKeyPem = extracted;
+        record(
+          STEP.publicKey,
+          "PASS",
+          "SubjectPublicKeyInfo extracted from the certificate; its algorithm cannot be compared with a signature algorithm this installation does not support",
+        );
+      } else if (extracted) {
+        const keyAlgorithm = orchestrator.identifyPublicKey(extracted);
+        if (keyAlgorithm === signature.algorithm && keyAlgorithm === certificate.algorithm) {
+          publicKeyPem = extracted;
+          record(
+            STEP.publicKey,
+            "PASS",
+            `the certificate carries a ${keyAlgorithm} key, matching both the signature and certificate records`,
+          );
+        } else {
+          record(
+            STEP.publicKey,
+            "FAIL",
+            `the certificate carries ${
+              keyAlgorithm ? `a ${keyAlgorithm} key` : "a key no registered provider recognises"
+            }, the signature record says ${signature.algorithm} and the certificate record says ${
+              certificate.algorithm
+            }; no verification is attempted across algorithms`,
+          );
+          reasons.push("ALGORITHM_MISMATCH");
+        }
       }
     } else {
       record(STEP.publicKey, "SKIPPED", "there is no certificate to take a key from");
@@ -266,13 +297,11 @@ export async function verifyDocument(
       try {
         signatureValid = await orchestrator.verify({
           algorithm: signature.algorithm,
-          digest: Buffer.from(recomputedHash, "hex"),
+          message: Buffer.from(recomputedHash, "hex"),
           signature: signature.signatureBytes,
           publicKeyPem,
         });
       } catch (error) {
-        // A key of the wrong type for this algorithm is a failed verification, not a
-        // verifier fault: substituting another algorithm's public key lands here.
         const summary = error instanceof Error ? error.message.split(/\r?\n/, 1)[0] : String(error);
         detail = `${signature.algorithm} verification rejected the key or signature: ${summary}`;
       }
@@ -282,7 +311,7 @@ export async function verifyDocument(
       record(
         STEP.verify,
         "SKIPPED",
-        "requires both a public key from the certificate and readable stored bytes",
+        "requires a public key whose algorithm matches the signature, and readable stored bytes",
       );
     }
 

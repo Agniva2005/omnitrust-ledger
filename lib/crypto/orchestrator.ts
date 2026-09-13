@@ -1,40 +1,31 @@
-// Cryptographic Orchestration layer.
+// Cryptographic Orchestration layer: the single entry point every other layer uses.
 //
-// The single entry point every other layer uses for signing and verification.
-// Adding a fourth algorithm means adding one provider file and one registry line
-// below; no other file in the codebase changes.
-import { ecdsaProvider } from "@/lib/crypto/providers/ecdsa";
-import { eddsaProvider } from "@/lib/crypto/providers/eddsa";
-import { rsaProvider } from "@/lib/crypto/providers/rsa";
-import {
-  ALGORITHMS,
-  assertAlgorithm,
-  type Algorithm,
-  type KeyPairPem,
-  type SignatureProvider,
-} from "@/lib/crypto/types";
+// Nothing outside lib/crypto imports a provider, the registry, or an algorithm library.
+// Callers pass an algorithm identifier read from a record (certificate or signature) and
+// receive plain results; they never branch on which algorithm it is.
+import { registry, type Algorithm } from "@/lib/crypto/registry";
+import type { AlgorithmMetadata, KeyPairPem, SignatureProvider } from "@/lib/crypto/types";
 
-const REGISTRY: Record<Algorithm, SignatureProvider> = {
-  RSA: rsaProvider,
-  ECDSA_P256: ecdsaProvider,
-  ED25519: eddsaProvider,
-};
+export type { Algorithm } from "@/lib/crypto/registry";
+export type { AlgorithmMetadata, KeyPairPem } from "@/lib/crypto/types";
+
+export const ALGORITHMS: readonly Algorithm[] = registry.algorithms;
+export const isAlgorithm = registry.isAlgorithm;
+export const assertAlgorithm = registry.assertAlgorithm;
 
 export function providerFor(algorithm: Algorithm): SignatureProvider {
-  const provider = REGISTRY[algorithm];
-  if (!provider) throw new Error(`No signature provider registered for ${algorithm}`);
-  return provider;
+  return registry.providerFor(algorithm);
 }
 
 export type SignRequest = {
   algorithm: Algorithm;
-  digest: Uint8Array;
+  message: Uint8Array;
   privateKeyPem: string;
 };
 
 export type VerifyRequest = {
   algorithm: Algorithm;
-  digest: Uint8Array;
+  message: Uint8Array;
   signature: Uint8Array;
   publicKeyPem: string;
 };
@@ -42,41 +33,50 @@ export type VerifyRequest = {
 export const orchestrator = {
   algorithms: ALGORITHMS,
 
-  /** Provider metadata for the UI and the benchmark table. */
-  describe(algorithm: Algorithm) {
-    const provider = providerFor(algorithm);
-    return {
-      algorithm: provider.algorithm,
-      displayName: provider.displayName,
-      description: provider.description,
-      signatureByteLength: provider.signatureByteLength,
-    };
+  describe(algorithm: Algorithm): AlgorithmMetadata {
+    return providerFor(assertAlgorithm(algorithm)).metadata;
   },
 
-  describeAll() {
-    return ALGORITHMS.map((algorithm) => orchestrator.describe(algorithm));
+  describeAll(): AlgorithmMetadata[] {
+    return ALGORITHMS.map((algorithm) => providerFor(algorithm).metadata);
   },
 
-  // These are async rather than Promise-returning so that an unregistered algorithm
-  // rejects instead of throwing synchronously: callers get one error path, not two.
+  /** For identifiers read from storage: metadata when registered, null otherwise. Never throws. */
+  lookup(value: string): AlgorithmMetadata | null {
+    return isAlgorithm(value) ? providerFor(value).metadata : null;
+  },
+
+  /** A display label that stays safe for identifiers this installation does not support. */
+  displayName(value: string): string {
+    return orchestrator.lookup(value)?.displayName ?? `Unsupported algorithm (${value})`;
+  },
+
+  // Async so that an unregistered algorithm rejects rather than throwing synchronously:
+  // callers get one error path, not two.
   async generateKeyPair(algorithm: Algorithm): Promise<KeyPairPem> {
     return providerFor(assertAlgorithm(algorithm)).generateKeyPair();
   },
 
-  async sign({ algorithm, digest, privateKeyPem }: SignRequest): Promise<Buffer> {
-    return providerFor(assertAlgorithm(algorithm)).sign(digest, privateKeyPem);
+  async sign({ algorithm, message, privateKeyPem }: SignRequest): Promise<Buffer> {
+    return providerFor(assertAlgorithm(algorithm)).sign(message, privateKeyPem);
+  },
+
+  /** Returns false rather than throwing when a signature simply does not verify. */
+  async verify({ algorithm, message, signature, publicKeyPem }: VerifyRequest): Promise<boolean> {
+    return providerFor(assertAlgorithm(algorithm)).verify(message, signature, publicKeyPem);
   },
 
   /**
-   * Resolves the algorithm from the caller's record (certificate or signature row),
-   * never from a hard-coded default, and returns false rather than throwing when a
-   * signature simply does not verify.
+   * The algorithm a public key actually belongs to, decided by the key material rather than
+   * by any label stored beside it. Null when no registered provider recognises it.
    */
-  async verify({ algorithm, digest, signature, publicKeyPem }: VerifyRequest): Promise<boolean> {
-    return providerFor(assertAlgorithm(algorithm)).verify(digest, signature, publicKeyPem);
-  },
-
-  webCryptoParams(algorithm: Algorithm) {
-    return providerFor(assertAlgorithm(algorithm)).webCrypto;
+  identifyPublicKey(publicKeyPem: string): Algorithm | null {
+    const matches = ALGORITHMS.filter((algorithm) =>
+      providerFor(algorithm).identifiesPublicKey(publicKeyPem),
+    );
+    if (matches.length > 1) {
+      throw new Error(`Registry misconfiguration: key recognised by ${matches.join(" and ")}`);
+    }
+    return matches[0] ?? null;
   },
 };

@@ -6,24 +6,16 @@
 import type { CertificateAuthority } from "@prisma/client";
 import * as x509 from "@peculiar/x509";
 import { NotFoundError } from "@/lib/api";
-import { orchestrator } from "@/lib/crypto/orchestrator";
 import {
   certificateSigningAlgorithm,
   configureCertificateProvider,
-  importPrivateKey,
-  importPublicKey,
+  importIssuerPrivateKey,
+  importIssuerPublicKey,
 } from "@/lib/crypto/keys";
+import { assertAlgorithm, orchestrator } from "@/lib/crypto/orchestrator";
 import { decryptString, encryptString } from "@/lib/crypto/symmetric";
-import { assertAlgorithm, type Algorithm } from "@/lib/crypto/types";
 import { prisma } from "@/lib/db";
-
-/**
- * The root CA signs certificates for subjects of every algorithm, so its own
- * algorithm is independent of theirs. P-256 is chosen so that the size differences
- * between issued certificates reflect the subject's key rather than being swamped by
- * a 384-byte RSA signature from the issuer.
- */
-export const CA_ALGORITHM: Algorithm = "ECDSA_P256";
+import { CA_ALGORITHM } from "@/lib/pki/policy";
 
 export const CA_SUBJECT =
   "CN=OmniTrust Demo Root CA,O=OmniTrust Ledger,OU=Demo PKI - Not For Production Use";
@@ -38,8 +30,8 @@ export async function ensureRootCa(): Promise<CertificateAuthority> {
   configureCertificateProvider();
 
   const keys = await orchestrator.generateKeyPair(CA_ALGORITHM);
-  const privateKey = await importPrivateKey(CA_ALGORITHM, keys.privateKeyPem);
-  const publicKey = await importPublicKey(CA_ALGORITHM, keys.publicKeyPem);
+  const privateKey = await importIssuerPrivateKey(CA_ALGORITHM, keys.privateKeyPem);
+  const publicKey = await importIssuerPublicKey(CA_ALGORITHM, keys.publicKeyPem);
 
   const notBefore = new Date();
   const notAfter = new Date(notBefore);
@@ -84,7 +76,10 @@ export function caCertificate(ca: CertificateAuthority): x509.X509Certificate {
 
 /** Decrypts the CA private key and imports it for signing. Never returns the PEM. */
 export async function caSigningKey(ca: CertificateAuthority): Promise<CryptoKey> {
-  return importPrivateKey(assertAlgorithm(ca.algorithm), decryptString(ca.encryptedPrivateKey));
+  return importIssuerPrivateKey(
+    assertAlgorithm(ca.algorithm),
+    decryptString(ca.encryptedPrivateKey),
+  );
 }
 
 export function caSigningAlgorithm(ca: CertificateAuthority) {

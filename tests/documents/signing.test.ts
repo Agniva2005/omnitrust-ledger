@@ -2,8 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ConflictError } from "@/lib/api";
 import { AuthorizationError, type Actor } from "@/lib/auth/rbac";
 import { sha256Hex } from "@/lib/crypto/hash";
-import { orchestrator } from "@/lib/crypto/orchestrator";
-import { ALGORITHMS, type Algorithm } from "@/lib/crypto/types";
+import { ALGORITHMS, orchestrator, type Algorithm } from "@/lib/crypto/orchestrator";
 import { prisma } from "@/lib/db";
 import { addDocumentVersion, uploadDocument } from "@/lib/documents/service";
 import { signDocument } from "@/lib/documents/signing";
@@ -86,7 +85,7 @@ describe.each(ALGORITHMS)("signing under %s", (algorithm) => {
 
     const verified = await orchestrator.verify({
       algorithm,
-      digest: Buffer.from(document.currentHash, "hex"),
+      message: Buffer.from(document.currentHash, "hex"),
       signature: signature.signatureBytes,
       publicKeyPem: publicKeyPemFromCertificate(certificates[algorithm].certPem),
     });
@@ -105,7 +104,7 @@ describe.each(ALGORITHMS)("signing under %s", (algorithm) => {
     expect(
       await orchestrator.verify({
         algorithm,
-        digest: Buffer.from(document.currentHash, "hex"),
+        message: Buffer.from(document.currentHash, "hex"),
         signature: signature.signatureBytes,
         publicKeyPem,
       }),
@@ -114,14 +113,14 @@ describe.each(ALGORITHMS)("signing under %s", (algorithm) => {
     expect(
       await orchestrator.verify({
         algorithm,
-        digest: Buffer.from(document.currentHash, "utf8"),
+        message: Buffer.from(document.currentHash, "utf8"),
         signature: signature.signatureBytes,
         publicKeyPem,
       }),
     ).toBe(false);
   });
 
-  it("records the signature size the algorithm specifies", async () => {
+  it("records a signature of the size the algorithm's metadata declares", async () => {
     const document = await upload(`size under ${algorithm}`, `${algorithm}-size.txt`);
     const { signature } = await signDocument({
       actor: signer,
@@ -129,18 +128,14 @@ describe.each(ALGORITHMS)("signing under %s", (algorithm) => {
       certificateId: certificates[algorithm].id,
     });
 
-    const expected = orchestrator.describe(algorithm).signatureByteLength;
-    if (expected === null) {
-      expect(signature.signatureBytes.length).toBeGreaterThanOrEqual(68);
-      expect(signature.signatureBytes.length).toBeLessThanOrEqual(72);
-    } else {
-      expect(signature.signatureBytes.length).toBe(expected);
-    }
+    const { fixedBytes, maxBytes } = orchestrator.describe(algorithm).signature;
+    if (fixedBytes !== null) expect(signature.signatureBytes.length).toBe(fixedBytes);
+    expect(signature.signatureBytes.length).toBeLessThanOrEqual(maxBytes);
   });
 });
 
-describe("the same document hash signed across all three algorithms", () => {
-  it("gives three different signatures that each verify (Phase 5 DoD)", async () => {
+describe("the same document flow signed under every registered algorithm", () => {
+  it("gives a different signature per algorithm, each of which verifies (Phase 5 DoD)", async () => {
     const results = [];
     for (const algorithm of ALGORITHMS) {
       const document = await upload(`shared text for ${algorithm}`, `${algorithm}-doc.txt`);
@@ -156,7 +151,7 @@ describe("the same document hash signed across all three algorithms", () => {
       expect(
         await orchestrator.verify({
           algorithm,
-          digest: Buffer.from(document.currentHash, "hex"),
+          message: Buffer.from(document.currentHash, "hex"),
           signature: signature.signatureBytes,
           publicKeyPem: publicKeyPemFromCertificate(certificates[algorithm].certPem),
         }),
@@ -256,6 +251,18 @@ describe("preconditions", () => {
       signDocument({ actor: signer, documentId: document.id, certificateId: adminCertificate.id });
     await expect(attempt()).rejects.toThrow(AuthorizationError);
     await expect(attempt()).rejects.toThrow(/issued to you/);
+  });
+
+  it("refuses a certificate whose key contradicts its recorded algorithm", async () => {
+    const certificate = await issueCertificate({ actor: signer, algorithm: "ED25519" });
+    // Relabel the row only. The certificate bytes -- and so its key -- are untouched.
+    await prisma.certificate.update({ where: { id: certificate.id }, data: { algorithm: "RSA" } });
+
+    const document = await upload("relabelled certificate");
+    await expect(
+      signDocument({ actor: signer, documentId: document.id, certificateId: certificate.id }),
+    ).rejects.toThrow(/does not match its recorded algorithm/);
+    expect(await prisma.signature.count({ where: { documentVersion: { documentId: document.id } } })).toBe(0);
   });
 
   it("refuses to sign when the stored bytes no longer match the recorded hash", async () => {

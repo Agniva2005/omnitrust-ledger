@@ -12,7 +12,7 @@ import { createHash, createPrivateKey, createPublicKey, sign, verify, webcrypto 
 import { p256 } from "@noble/curves/p256";
 import { describe, expect, it } from "vitest";
 import { providerFor } from "@/lib/crypto/orchestrator";
-import { pemBody } from "@/lib/crypto/types";
+import { pemBody } from "@/lib/crypto/pem";
 
 const digest = createHash("sha256").update("omnitrust ledger document").digest();
 

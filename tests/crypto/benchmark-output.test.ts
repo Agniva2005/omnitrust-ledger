@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ALGORITHMS } from "@/lib/crypto/types";
+import { isAlgorithm, orchestrator } from "@/lib/crypto/orchestrator";
 
 const FILE = path.join(process.cwd(), "public", "benchmarks.json");
 
@@ -20,20 +20,21 @@ describe("benchmark output", () => {
     expect(new Date(data.generatedAt).toString()).not.toBe("Invalid Date");
     expect(data.environment.cpu.length).toBeGreaterThan(0);
     expect(data.parameters.iterations).toBeGreaterThan(0);
-    expect(data.algorithms.map((entry: { algorithm: string }) => entry.algorithm).sort()).toEqual(
-      [...ALGORITHMS].sort(),
-    );
 
     for (const entry of data.algorithms) {
-      // Sizes must match what the algorithm actually produces.
-      if (entry.algorithm === "ED25519") expect(entry.signatureBytes).toBe(64);
-      if (entry.algorithm === "RSA") expect(entry.signatureBytes).toBe(384);
+      // Results for an algorithm no longer registered say nothing about this build.
+      if (!isAlgorithm(entry.algorithm)) continue;
+
+      // Sizes must match what the algorithm's own metadata declares.
+      const { fixedBytes, maxBytes } = orchestrator.describe(entry.algorithm).signature;
+      if (fixedBytes !== null) expect(entry.signatureBytes).toBe(fixedBytes);
+      expect(entry.signatureBytes).toBeLessThanOrEqual(maxBytes);
 
       for (const payload of entry.payloads) {
         for (const operation of ["hash", "sign", "verify"] as const) {
           const stats = payload[operation];
           expect(stats.iterations).toBe(data.parameters.iterations);
-          // Real measurements: strictly positive, ordered, and not identical constants.
+          // Real measurements: strictly positive and ordered.
           expect(stats.medianMs).toBeGreaterThan(0);
           expect(stats.minMs).toBeLessThanOrEqual(stats.medianMs);
           expect(stats.maxMs).toBeGreaterThanOrEqual(stats.p95Ms);

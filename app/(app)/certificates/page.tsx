@@ -48,9 +48,7 @@ export default async function CertificatesPage() {
           <CardTitle>Local root Certificate Authority</CardTitle>
           <CardDescription>
             {ca
-              ? `${ca.name} - signing with ${orchestrator.describe(
-                  ca.algorithm as never,
-                ).displayName}`
+              ? `${ca.name} - signing with ${orchestrator.displayName(ca.algorithm)}`
               : "Not created yet. Run npm run setup."}
           </CardDescription>
         </CardHeader>
@@ -111,9 +109,7 @@ export default async function CertificatesPage() {
               return (
                 <TableRow key={certificate.id}>
                   <TableCell>{certificate.subject.email}</TableCell>
-                  <TableCell>
-                    {orchestrator.describe(certificate.algorithm as never).displayName}
-                  </TableCell>
+                  <TableCell>{orchestrator.displayName(certificate.algorithm)}</TableCell>
                   <TableCell>
                     <StatusBadge status={certificate.status} />
                   </TableCell>

@@ -43,7 +43,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
     ? (await signableCertificates(actor)).map((certificate) => ({
         id: certificate.id,
         algorithm: certificate.algorithm,
-        displayName: orchestrator.describe(certificate.algorithm as never).displayName,
+        displayName: orchestrator.displayName(certificate.algorithm),
         serialNumber: certificate.serialNumber,
         expiresAt: certificate.expiresAt.toISOString(),
       }))
@@ -139,9 +139,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                 {signatures.map((signature) => (
                   <TableRow key={signature.id}>
                     <TableCell>v{signature.documentVersion.versionNumber}</TableCell>
-                    <TableCell>
-                      {orchestrator.describe(signature.algorithm as never).displayName}
-                    </TableCell>
+                    <TableCell>{orchestrator.displayName(signature.algorithm)}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {signature.signatureBytes.length} bytes
                     </TableCell>

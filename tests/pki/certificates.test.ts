@@ -1,10 +1,9 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AuthorizationError, type Actor } from "@/lib/auth/rbac";
-import { orchestrator } from "@/lib/crypto/orchestrator";
 import { sha256 } from "@/lib/crypto/hash";
-import { ALGORITHMS } from "@/lib/crypto/types";
+import { ALGORITHMS, orchestrator } from "@/lib/crypto/orchestrator";
 import { prisma } from "@/lib/db";
-import { CA_ALGORITHM, CA_SUBJECT, ensureRootCa, getRootCa } from "@/lib/pki/ca";
+import { CA_SUBJECT, ensureRootCa, getRootCa } from "@/lib/pki/ca";
 import {
   issueCertificate,
   parseCertificate,
@@ -13,6 +12,7 @@ import {
   revokeCertificate,
   signableCertificates,
 } from "@/lib/pki/certificates";
+import { CA_ALGORITHM } from "@/lib/pki/policy";
 import { validateCertificate } from "@/lib/pki/validation";
 import { seedUsers } from "@/prisma/fixtures";
 import { resetDatabase } from "@/tests/helpers/db";
@@ -96,20 +96,27 @@ describe.each(ALGORITHMS)("issuing a %s certificate", (algorithm) => {
     );
   });
 
+  it("certifies a key whose own material identifies as the recorded algorithm", async () => {
+    const certificate = await issueCertificate({ actor: signer, algorithm });
+    expect(orchestrator.identifyPublicKey(publicKeyPemFromCertificate(certificate.certPem))).toBe(
+      algorithm,
+    );
+  });
+
   it("produces a working key pair: the certificate's public key verifies its own signature", async () => {
     const certificate = await issueCertificate({ actor: signer, algorithm });
-    const digest = sha256("a document to sign");
+    const message = sha256("a document to sign");
 
     const signature = await orchestrator.sign({
       algorithm,
-      digest,
+      message,
       privateKeyPem: privateKeyPemFor(certificate.keyPair),
     });
 
     expect(
       await orchestrator.verify({
         algorithm,
-        digest,
+        message,
         signature,
         publicKeyPem: publicKeyPemFromCertificate(certificate.certPem),
       }),

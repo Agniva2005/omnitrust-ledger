@@ -4,21 +4,16 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import type { AlgorithmMetadata } from "@/lib/crypto/types";
 
-type AlgorithmOption = {
-  algorithm: string;
-  displayName: string;
-  description: string;
-  signatureByteLength: number | null;
-};
-
-export function IssueCertificateForm({ algorithms }: { algorithms: AlgorithmOption[] }) {
+export function IssueCertificateForm({ algorithms }: { algorithms: AlgorithmMetadata[] }) {
   const router = useRouter();
-  const [algorithm, setAlgorithm] = useState(algorithms[0]?.algorithm ?? "");
+  const issuable = algorithms.filter((option) => option.capabilities.x509Subject);
+  const [algorithm, setAlgorithm] = useState(issuable[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  const selected = algorithms.find((option) => option.algorithm === algorithm);
+  const selected = issuable.find((option) => option.id === algorithm);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -52,13 +47,21 @@ export function IssueCertificateForm({ algorithms }: { algorithms: AlgorithmOpti
           value={algorithm}
           onChange={(event) => setAlgorithm(event.target.value)}
         >
-          {algorithms.map((option) => (
-            <option key={option.algorithm} value={option.algorithm}>
-              {option.displayName}
+          {issuable.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.displayName} ({option.securityClass})
             </option>
           ))}
         </select>
-        {selected && <p className="max-w-prose text-xs text-muted-foreground">{selected.description}</p>}
+        {selected && (
+          <div className="max-w-prose space-y-1 text-xs text-muted-foreground">
+            <p>{selected.description}</p>
+            <p>
+              {selected.family} &middot; {selected.parameters} &middot; implemented by{" "}
+              {selected.implementation.version}
+            </p>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -67,7 +70,7 @@ export function IssueCertificateForm({ algorithms }: { algorithms: AlgorithmOpti
         </p>
       )}
 
-      <Button type="submit" disabled={pending}>
+      <Button type="submit" disabled={pending || !selected}>
         {pending ? "Generating key and signing certificate..." : "Issue certificate"}
       </Button>
     </form>
