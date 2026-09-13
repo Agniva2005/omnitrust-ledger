@@ -7,6 +7,7 @@
 // contain.
 import { ecdsaProvider } from "@/lib/crypto/providers/ecdsa";
 import { eddsaProvider } from "@/lib/crypto/providers/eddsa";
+import { mlDsa65Provider } from "@/lib/crypto/providers/mldsa";
 import { rsaProvider } from "@/lib/crypto/providers/rsa";
 import type { SignatureProvider } from "@/lib/crypto/types";
 
@@ -14,6 +15,7 @@ export const PROVIDERS = {
   RSA: rsaProvider,
   ECDSA_P256: ecdsaProvider,
   ED25519: eddsaProvider,
+  ML_DSA_65: mlDsa65Provider,
 } as const satisfies Record<string, SignatureProvider>;
 
 export type Algorithm = keyof typeof PROVIDERS;
