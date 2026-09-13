@@ -25,6 +25,11 @@ export const AUDIT_ACTIONS = [
   "TIMESTAMP_ISSUED",
   "TIMESTAMP_UNAVAILABLE",
   "KEY_LIFECYCLE_CHANGED",
+  "CA_CREATED",
+  "TSA_CREATED",
+  "AUDIT_SIGNER_CREATED",
+  "AUDIT_CHECKPOINT_CREATED",
+  "AUDIT_VERIFIED",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -81,8 +86,10 @@ export type AppendInput = {
 };
 
 // Appends are serialised in-process: each waits for the previous one to finish, so two
-// concurrent requests cannot read the same tail and compute the same seq. The unique
-// constraint on `seq` is the backstop -- a losing writer retries against the new tail.
+// concurrent requests cannot read the same tail and compute the same seq. Across processes
+// (a script running beside the server) the unique constraint on `seq` is the backstop: a
+// losing writer retries against the new tail. Only that conflict is retried; any other
+// failure is raised at once rather than retried into the same error.
 let appendQueue: Promise<unknown> = Promise.resolve();
 
 const MAX_ATTEMPTS = 5;
@@ -118,6 +125,7 @@ async function appendOnce(input: AppendInput): Promise<AuditLogEntry> {
       });
     } catch (error) {
       // Unique violation on seq: another writer got there first, so re-read the tail.
+      if ((error as { code?: unknown } | null)?.code !== "P2002") throw error;
       lastError = error;
     }
   }

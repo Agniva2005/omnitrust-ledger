@@ -22,7 +22,8 @@ export type Capability =
   | "certificate:issue"
   | "certificate:revoke"
   | "audit:read"
-  | "audit:verify";
+  | "audit:verify"
+  | "audit:checkpoint";
 
 const CAPABILITIES: Record<Capability, readonly Role[]> = {
   "document:read": ROLES,
@@ -34,6 +35,7 @@ const CAPABILITIES: Record<Capability, readonly Role[]> = {
   "certificate:revoke": ["ADMIN"],
   "audit:read": ROLES,
   "audit:verify": ["ADMIN", "VERIFIER"],
+  "audit:checkpoint": ["ADMIN"],
 };
 
 export type Actor = { userId: string; email: string; role: Role };

@@ -312,3 +312,48 @@ Two OpenSSL CLIs are installed: PowerShell resolves `openssl` to **MSYS2's 3.4.0
 - Over real HTTP against `npm run dev`: for all four algorithms, a document uploaded and signed through the API and exported as a `viewer`; the CMS files verify with both OpenSSL CLIs for RSA-PSS and ECDSA and fail on altered content; unauthenticated export 401; unknown part 400.
 - Browser: the document page shows the CMS / Document / Certificate links and the external-verification card; no console errors.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+
+---
+
+## Phase 6 — Audit chain strengthening: signed checkpoints and coverage
+
+### The gap
+
+The hash chain detects an edited row only while the stored hashes are left alone. Anyone who can write to the database can change an entry and then recompute and rewrite every later `prevHash` and `entryHash`, or delete entries from the end. In both cases `verifyAuditChain()` still reports the chain intact. The new tests demonstrate both cases passing the chain check before showing them caught.
+
+### What changed
+
+- **Signed, time-stamped checkpoints** (`lib/pki/audit-checkpoints.ts`, models `AuditSigner` and `AuditCheckpoint`):
+  - a dedicated **audit-signer certificate** issued by the local CA (digitalSignature and nonRepudiation, not a CA), so the CA and TSA keys never sign audit data;
+  - a checkpoint signs a line-based payload `omnitrust-audit-checkpoint/1` with the covered sequence number, the **hash of that entry derived from the genesis hash** (ignoring every stored hash), the previous checkpoint's hash and the creation time; the signature value is RFC 3161 time-stamped;
+  - checkpoints form their own chain; `prevCheckpointHash` is unique, so two checkpoints cannot fork from one parent;
+  - only an ADMIN can create one (`audit:checkpoint`), and **never over a log that does not verify**, since that would certify the tampering.
+- **`verifyAuditLog()`** walks the chain (`walkAuditChain()` now also derives each entry's hash from genesis), then checks every checkpoint: its own hash, its link to the previous checkpoint, its signature under a certificate that chains to the CA, its time-stamp, and that the log still derives the committed hash at the committed sequence. New findings: `LOG_REWRITTEN`, `LOG_TRUNCATED`, `CHECKPOINT_ALTERED`, `CHECKPOINT_CHAIN_BROKEN`, `CHECKPOINT_SIGNATURE_INVALID`, `CHECKPOINT_TIMESTAMP_INVALID`. The result states how many entries after the latest checkpoint rest on the chain alone and **returns its limitations with every verification**.
+- **Audit coverage**: the CA, Time-Stamp Authority and audit signer are audited when created (`CA_CREATED`, `TSA_CREATED`, `AUDIT_SIGNER_CREATED`); tokens issued through the RFC 3161 HTTP endpoint are audited with the requesting user; every integrity check is audited with who ran it and what it found (`AUDIT_VERIFIED`); checkpoint creation is audited.
+- **Append retries are narrowed**: only the `seq` unique-constraint conflict is retried; any other failure (for example a foreign-key violation) is raised immediately instead of being retried five times.
+- **API and UI**: `POST /api/audit/checkpoints` (ADMIN), `GET /api/audit/checkpoints` (any reader), `POST /api/audit/verify` returning the reconciled result. The audit page adds a "Create signed checkpoint" button for admins, a checkpoint table, separate chain and checkpoint badges, the explanation, per-checkpoint problems, and a "What this check cannot detect" disclosure.
+- **Migration** `20260913170000_add_audit_checkpoints`. This time the SQL was generated after deleting stale shadow databases and was refused unless it created both tables.
+
+### Stated limits (tested as limits)
+
+1. Entries after the latest checkpoint are protected only by the hash chain; a consistent rewrite of them passes.
+2. Deleting the newest checkpoint together with the entries it covers cannot be detected from this database alone. Phase 7 anchors checkpoints outside it.
+3. The signer's private key is encrypted with the same local master key as every other key, so someone holding both the database and that key file can forge checkpoints.
+
+### Verification
+
+- `npm test`: **589 passed, 1 skipped** across 40 files (570 after Phase 5). New `tests/audit/checkpoints.test.ts` (19 tests):
+  - a checkpoint commits to the verified head, is time-stamped, links to its predecessor, and is recorded after itself;
+  - only admins create checkpoints; a broken log is refused; concurrent attempts never fork the checkpoint chain;
+  - **a consistent rewrite** of a checkpointed entry and **deletion of entries below the latest checkpoint** both pass `verifyAuditChain()` and are caught as `LOG_REWRITTEN` and `LOG_TRUNCATED`;
+  - an altered checkpoint (with and without its own hash recomputed), a flipped signature bit, a swapped time-stamp, and a checkpoint removed from the middle are each caught with the specific finding;
+  - the three limits above, asserted to behave as documented;
+  - a checkpoint signature verifies with the OpenSSL CLI (`openssl dgst -sha256 -verify`, "Verified OK") and fails on an altered payload;
+  - coverage: CA, TSA and signer creation audited; `AUDIT_VERIFIED` records the actor and result; viewers are refused; a foreign-key failure is raised at once (`P2003`).
+- Over real HTTP against `npm run dev` (non-destructive; the demo log was not tampered with):
+  - verifying 115 entries before any checkpoint reports the chain intact and says a rewrite would not be detectable;
+  - checkpoint creation is refused for a verifier (403), cross-site (403) and without a session (401), and succeeds for the admin (201, time-stamped, covering sequence 117);
+  - a viewer can list checkpoints (200) but not verify (403);
+  - verification then reports 1 agreeing checkpoint with a trusted time and one later entry on the chain alone.
+- Browser, `/audit` as admin: "LOG VERIFIED", "chain intact", "1 checkpoint agree", the explanation, the checkpoint row (RFC 3161, admin@demo), and the new audit entries; no console errors.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.

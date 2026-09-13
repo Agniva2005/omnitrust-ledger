@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Time-stamp request size is out of range" }, { status: 400 });
     }
 
-    const response = await respondToTimestampRequest(body);
+    const response = await respondToTimestampRequest(body, actor.userId);
     return new NextResponse(new Uint8Array(response), {
       headers: { "Content-Type": "application/timestamp-reply" },
     });

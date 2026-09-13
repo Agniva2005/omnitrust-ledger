@@ -13,6 +13,7 @@ import {
 import { auditEntryCount, listAuditEntries } from "@/lib/audit/log";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
+import { listAuditCheckpoints } from "@/lib/pki/audit-checkpoints";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export default async function AuditPage() {
 
   const entries = await listAuditEntries(200);
   const total = await auditEntryCount();
+  const checkpoints = await listAuditCheckpoints(10);
 
   return (
     <div className="space-y-6">
@@ -30,11 +32,17 @@ export default async function AuditPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Append-only and hash-chained: each entry stores SHA-256 of the previous entry&apos;s hash
           concatenated with its own fields, so altering any row breaks the chain from that point on.
+          Signed, time-stamped checkpoints commit to the chain head so that a log whose hashes were
+          recomputed after an edit, or whose newest entries were deleted, is detected too.
         </p>
       </div>
 
-      {can(actor.role, "audit:verify") ? (
-        <IntegrityChecker totalEntries={total} />
+      {can(actor.role, "audit:verify") || can(actor.role, "audit:checkpoint") ? (
+        <IntegrityChecker
+          totalEntries={total}
+          canVerify={can(actor.role, "audit:verify")}
+          canCheckpoint={can(actor.role, "audit:checkpoint")}
+        />
       ) : (
         <Card>
           <CardHeader>
@@ -46,6 +54,54 @@ export default async function AuditPage() {
           </CardHeader>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Signed checkpoints</CardTitle>
+          <CardDescription>
+            Each commits to the hash of entry <span className="font-mono">seq</span> derived from the
+            genesis hash, signed by the audit-signer certificate and time-stamped. Only an admin can
+            create one, and only over a log that verifies.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {checkpoints.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No checkpoints yet. Until one exists, a consistent rewrite of the log or deletion of its
+              newest entries would not be detectable.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Covers up to seq</TableHead>
+                  <TableHead>Head hash</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Time-stamp</TableHead>
+                  <TableHead>By</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {checkpoints.map((checkpoint) => (
+                  <TableRow key={checkpoint.id}>
+                    <TableCell className="font-mono text-xs">{checkpoint.seq}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {checkpoint.entryHash.slice(0, 16)}...
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{checkpoint.createdAt}</TableCell>
+                    <TableCell>
+                      <Badge variant={checkpoint.timestamped ? "secondary" : "outline"}>
+                        {checkpoint.timestamped ? "RFC 3161" : "none"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{checkpoint.createdBy ?? "-"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="rounded-lg border">
         <Table>

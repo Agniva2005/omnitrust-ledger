@@ -42,6 +42,7 @@ import {
 import { AlgorithmIdentifier, Certificate } from "@peculiar/asn1-x509";
 import * as x509 from "@peculiar/x509";
 import { BadRequestError } from "@/lib/api";
+import { appendAuditEntry } from "@/lib/audit/log";
 import { DIGEST_OIDS, digestByOid, digestLength, isSupportedDigestOid } from "@/lib/crypto/hash";
 import { configureCertificateProvider, spkiDerToPem, subjectPublicKey } from "@/lib/crypto/keys";
 import { assertAlgorithm, isAlgorithm, orchestrator } from "@/lib/crypto/orchestrator";
@@ -151,7 +152,7 @@ export async function ensureTimestampAuthority(): Promise<TimestampAuthority> {
     ],
   });
 
-  return prisma.timestampAuthority.create({
+  const authority = await prisma.timestampAuthority.create({
     data: {
       issuerCaId: ca.id,
       name: TSA_SUBJECT,
@@ -164,6 +165,14 @@ export async function ensureTimestampAuthority(): Promise<TimestampAuthority> {
       status: "ACTIVE",
     },
   });
+
+  await appendAuditEntry({
+    action: "TSA_CREATED",
+    targetType: "TimestampAuthority",
+    targetId: authority.id,
+    metadata: { algorithm: authority.algorithm, serialNumber, policyOid: authority.policyOid },
+  });
+  return authority;
 }
 
 export type TimestampRequest = {
@@ -492,7 +501,10 @@ function rejection(flag: PKIFailureInfoFlags): Buffer {
  * Answers a DER TimeStampReq with a DER TimeStampResp (RFC 3161 section 2.4). Requests the
  * TSA cannot honour receive a rejection with the RFC's failure information, not an error.
  */
-export async function respondToTimestampRequest(requestDer: Uint8Array): Promise<Buffer> {
+export async function respondToTimestampRequest(
+  requestDer: Uint8Array,
+  actorUserId: string | null = null,
+): Promise<Buffer> {
   let request: TimeStampReq;
   let policy: string | null;
   try {
@@ -527,6 +539,19 @@ export async function respondToTimestampRequest(requestDer: Uint8Array): Promise
     hashAlgorithmOid,
     nonce: request.nonce,
     includeCertificate: Boolean(request.certReq),
+  });
+
+  await appendAuditEntry({
+    actorUserId,
+    action: "TIMESTAMP_ISSUED",
+    targetType: "TimestampRequest",
+    targetId: issued.serialNumber,
+    metadata: {
+      via: "RFC 3161 HTTP endpoint",
+      genTime: issued.genTime.toISOString(),
+      hashAlgorithmOid,
+      tokenBytes: issued.token.length,
+    },
   });
 
   return Buffer.from(

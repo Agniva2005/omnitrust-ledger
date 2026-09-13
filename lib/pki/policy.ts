@@ -15,3 +15,9 @@ export const CA_ALGORITHM: Algorithm = "ECDSA_P256";
  * the OpenSSL command-line tool can verify the resulting tokens independently.
  */
 export const TSA_ALGORITHM: Algorithm = "ECDSA_P256";
+
+/**
+ * The audit-log checkpoint signer's algorithm. A separate key from the CA and the TSA; P-256
+ * keeps checkpoints small and lets the OpenSSL command-line tool verify them independently.
+ */
+export const AUDIT_SIGNER_ALGORITHM: Algorithm = "ECDSA_P256";

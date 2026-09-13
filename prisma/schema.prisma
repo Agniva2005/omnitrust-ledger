@@ -27,6 +27,7 @@ model User {
   certificates Certificate[]
   signatures   Signature[]
   auditEntries AuditLogEntry[]
+  auditCheckpoints AuditCheckpoint[]
 }
 
 /// Append-only hash chain: entryHash = SHA256(prevHash + canonical serialisation of
@@ -48,6 +49,42 @@ model AuditLogEntry {
   @@index([targetType, targetId])
 }
 
+/// The key that signs audit-log checkpoints, certified by the local CA. Kept apart from the
+/// CA and the Time-Stamp Authority so that no key serves two purposes.
+model AuditSigner {
+  id                  String               @id @default(cuid())
+  issuerCaId          String
+  issuerCa            CertificateAuthority @relation(fields: [issuerCaId], references: [id])
+  name                String
+  algorithm           String
+  serialNumber        String               @unique
+  certPem             String
+  encryptedPrivateKey String
+  expiresAt           DateTime
+  status              String
+  createdAt           DateTime             @default(now())
+  checkpoints         AuditCheckpoint[]
+}
+
+/// A signed, time-stamped commitment to the audit chain's head: entryHash is the hash of
+/// entry `seq` derived from the genesis hash. Checkpoints form their own chain through
+/// prevCheckpointHash, whose uniqueness prevents two checkpoints forking from one parent.
+/// See lib/pki/audit-checkpoints.ts.
+model AuditCheckpoint {
+  id                 String      @id @default(cuid())
+  seq                Int         @unique
+  entryHash          String
+  prevCheckpointHash String      @unique
+  checkpointHash     String      @unique
+  signerId           String
+  signer             AuditSigner @relation(fields: [signerId], references: [id])
+  signature          Bytes
+  timestampToken     Bytes?
+  createdByUserId    String?
+  createdBy          User?       @relation(fields: [createdByUserId], references: [id])
+  createdAt          DateTime
+}
+
 /// Singleton, seeded once. `algorithm` is not in the spec's field list but is required:
 /// the CA's signing algorithm must be resolved through the orchestrator rather than
 /// hard-coded anywhere, per Section 2 rule 2.
@@ -61,6 +98,7 @@ model CertificateAuthority {
   issued               Certificate[]
   revocationLists      RevocationList[]
   timestampAuthorities TimestampAuthority[]
+  auditSigners         AuditSigner[]
 }
 
 /// status: key lifecycle state, Figure 7 / NIST SP 800-57 (see lib/pki/keys.ts)

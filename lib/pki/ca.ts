@@ -6,6 +6,7 @@
 import type { CertificateAuthority } from "@prisma/client";
 import * as x509 from "@peculiar/x509";
 import { NotFoundError } from "@/lib/api";
+import { appendAuditEntry } from "@/lib/audit/log";
 import {
   certificateSigningAlgorithm,
   configureCertificateProvider,
@@ -53,7 +54,7 @@ export async function ensureRootCa(): Promise<CertificateAuthority> {
     ],
   });
 
-  return prisma.certificateAuthority.create({
+  const ca = await prisma.certificateAuthority.create({
     data: {
       name: CA_SUBJECT,
       algorithm: CA_ALGORITHM,
@@ -61,6 +62,14 @@ export async function ensureRootCa(): Promise<CertificateAuthority> {
       encryptedPrivateKey: encryptString(keys.privateKeyPem),
     },
   });
+
+  await appendAuditEntry({
+    action: "CA_CREATED",
+    targetType: "CertificateAuthority",
+    targetId: ca.id,
+    metadata: { algorithm: CA_ALGORITHM, subject: CA_SUBJECT, notAfter: notAfter.toISOString() },
+  });
+  return ca;
 }
 
 export async function getRootCa(): Promise<CertificateAuthority> {
