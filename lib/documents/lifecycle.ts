@@ -1,6 +1,7 @@
 // Document lifecycle, CLAUDE.md Section 3 / report Figure 4:
 //   created -> uploaded -> hashed -> signed -> stored -> verified -> versioned
 //            -> archived | revoked
+import { HttpError } from "@/lib/errors";
 
 export const DOCUMENT_STATES = [
   "CREATED",
@@ -33,7 +34,7 @@ const TRANSITIONS: Record<DocumentState, readonly DocumentState[]> = {
   REVOKED: [],
 };
 
-export class InvalidTransitionError extends Error {
+export class InvalidTransitionError extends HttpError {
   readonly status = 409;
   constructor(from: DocumentState, to: DocumentState) {
     super(`Illegal document lifecycle transition: ${from} -> ${to}`);

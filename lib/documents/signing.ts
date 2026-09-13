@@ -6,7 +6,7 @@
 import type { Signature } from "@prisma/client";
 import { ConflictError, NotFoundError } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
-import { requireCapability, type Actor } from "@/lib/auth/rbac";
+import { AuthorizationError, requireCapability, type Actor } from "@/lib/auth/rbac";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 import { assertAlgorithm } from "@/lib/crypto/types";
 import { prisma } from "@/lib/db";
@@ -27,6 +27,10 @@ export type SignDocumentResult = {
   signedHash: string;
 };
 
+function isUniqueViolation(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === "P2002";
+}
+
 /**
  * Signs the current version's hash. The payload is the raw 32 bytes of that
  * SHA-256, so the signature is over the document's content digest and nothing else.
@@ -38,15 +42,12 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
   if (!document) throw new NotFoundError("Document not found");
 
   const version = await latestVersion(document.id);
+  const alreadySigned = `Version ${version.versionNumber} is already signed. Upload a new version to sign again.`;
 
   const existing = await prisma.signature.findUnique({
     where: { documentVersionId: version.id },
   });
-  if (existing) {
-    throw new ConflictError(
-      `Version ${version.versionNumber} is already signed. Upload a new version to sign again.`,
-    );
-  }
+  if (existing) throw new ConflictError(alreadySigned);
 
   const certificate = await prisma.certificate.findUnique({
     where: { id: input.certificateId },
@@ -55,7 +56,7 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
   if (!certificate) throw new NotFoundError("Certificate not found");
 
   if (certificate.subjectUserId !== input.actor.userId) {
-    throw new ConflictError("You can only sign with a certificate issued to you");
+    throw new AuthorizationError("You can only sign with a certificate issued to you");
   }
 
   const validation = await validateCertificate(certificate);
@@ -83,22 +84,32 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
     privateKeyPem: privateKeyPemFor(certificate.keyPair),
   });
 
-  const signature = await prisma.signature.create({
-    data: {
-      documentVersionId: version.id,
-      certificateId: certificate.id,
-      algorithm,
-      signatureBytes: new Uint8Array(signatureBytes),
-      signedByUserId: input.actor.userId,
-    },
-  });
-
-  const updated = await prisma.document.update({
-    where: { id: document.id },
-    data: {
-      status: assertPath([assertDocumentState(document.status), "SIGNED", "STORED"]),
-    },
-  });
+  // The signature row and the lifecycle transition commit together or not at all. The
+  // unique constraint on documentVersionId settles a race between two signers.
+  let committed: { signature: Signature; documentStatus: string };
+  try {
+    committed = await prisma.$transaction(async (tx) => {
+      const signature = await tx.signature.create({
+        data: {
+          documentVersionId: version.id,
+          certificateId: certificate.id,
+          algorithm,
+          signatureBytes: new Uint8Array(signatureBytes),
+          signedByUserId: input.actor.userId,
+        },
+      });
+      const advanced = await tx.document.update({
+        where: { id: document.id },
+        data: {
+          status: assertPath([assertDocumentState(document.status), "SIGNED", "STORED"]),
+        },
+      });
+      return { signature, documentStatus: advanced.status };
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) throw new ConflictError(alreadySigned);
+    throw error;
+  }
 
   await appendAuditEntry({
     actorUserId: input.actor.userId,
@@ -114,7 +125,7 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
     },
   });
 
-  return { signature, documentStatus: updated.status, signedHash: version.hash };
+  return { ...committed, signedHash: version.hash };
 }
 
 export async function signaturesForDocument(documentId: string) {

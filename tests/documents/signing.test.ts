@@ -252,9 +252,10 @@ describe("preconditions", () => {
   it("refuses a certificate belonging to another user", async () => {
     const adminCertificate = await issueCertificate({ actor: admin, algorithm: "ED25519" });
     const document = await upload("someone else's certificate");
-    await expect(
-      signDocument({ actor: signer, documentId: document.id, certificateId: adminCertificate.id }),
-    ).rejects.toThrow(/issued to you/);
+    const attempt = () =>
+      signDocument({ actor: signer, documentId: document.id, certificateId: adminCertificate.id });
+    await expect(attempt()).rejects.toThrow(AuthorizationError);
+    await expect(attempt()).rejects.toThrow(/issued to you/);
   });
 
   it("refuses to sign when the stored bytes no longer match the recorded hash", async () => {

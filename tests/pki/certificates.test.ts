@@ -212,10 +212,11 @@ describe("authorisation on issuance", () => {
     ).rejects.toThrow(AuthorizationError);
   });
 
-  it("a SIGNER cannot issue a certificate for someone else", async () => {
-    await expect(
-      issueCertificate({ actor: signer, algorithm: "RSA", subjectUserId: admin.userId }),
-    ).rejects.toThrow(/Only an ADMIN/);
+  it("a SIGNER cannot issue a certificate for someone else, and is told it is forbidden", async () => {
+    const attempt = () =>
+      issueCertificate({ actor: signer, algorithm: "RSA", subjectUserId: admin.userId });
+    await expect(attempt()).rejects.toThrow(AuthorizationError);
+    await expect(attempt()).rejects.toThrow(/Only an ADMIN/);
   });
 
   it("an ADMIN can issue on another user's behalf", async () => {

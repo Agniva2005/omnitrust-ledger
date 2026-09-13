@@ -107,7 +107,7 @@ describe("extensibility claim from the report", () => {
       async sign() {
         return Buffer.alloc(8, 0xab);
       },
-      async verify(_digest: Uint8Array, signature: Uint8Array) {
+      async verify(_digest: Uint8Array, signature: Uint8Array, _publicKeyPem: string) {
         return Buffer.from(signature).equals(Buffer.alloc(8, 0xab));
       },
     };

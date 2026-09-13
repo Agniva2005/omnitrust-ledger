@@ -2,6 +2,7 @@
 //   generated -> active -> rotated -> revoked -> retired
 //
 // Also holds the certificate lifecycle (Figure 6), since the two move together.
+import { HttpError } from "@/lib/errors";
 
 export const KEY_STATES = ["GENERATED", "ACTIVE", "ROTATED", "REVOKED", "RETIRED"] as const;
 export type KeyState = (typeof KEY_STATES)[number];
@@ -29,7 +30,7 @@ const CERTIFICATE_TRANSITIONS: Record<CertificateState, readonly CertificateStat
   REVOKED: [],
 };
 
-export class InvalidKeyTransitionError extends Error {
+export class InvalidKeyTransitionError extends HttpError {
   readonly status = 409;
   constructor(from: string, to: string, kind: "key" | "certificate") {
     super(`Illegal ${kind} lifecycle transition: ${from} -> ${to}`);

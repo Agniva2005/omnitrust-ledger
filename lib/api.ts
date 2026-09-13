@@ -1,44 +1,44 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { AuthenticationError, AuthorizationError } from "@/lib/auth/rbac";
+import { HttpError, TooManyRequestsError } from "@/lib/errors";
 
-export class BadRequestError extends Error {
-  readonly status = 400;
-  constructor(message: string) {
-    super(message);
-    this.name = "BadRequestError";
-  }
-}
+export {
+  BadRequestError,
+  ConflictError,
+  HttpError,
+  NotFoundError,
+  TooManyRequestsError,
+} from "@/lib/errors";
 
-export class NotFoundError extends Error {
-  readonly status = 404;
-  constructor(message = "Not found") {
-    super(message);
-    this.name = "NotFoundError";
-  }
-}
-
-export class ConflictError extends Error {
-  readonly status = 409;
-  constructor(message: string) {
-    super(message);
-    this.name = "ConflictError";
-  }
+/**
+ * What is safe to write to a server log about an unexpected error. Only the first line
+ * of the message is kept: ORM errors echo the query arguments on the lines that follow,
+ * and those arguments can include encrypted key material or personal data.
+ */
+export function redactErrorForLog(error: unknown): { name: string; code?: string; summary: string } {
+  if (!(error instanceof Error)) return { name: typeof error, summary: "non-Error value thrown" };
+  const code = (error as { code?: unknown }).code;
+  return {
+    name: error.name,
+    code: typeof code === "string" ? code : undefined,
+    summary: (error.message.split(/\r?\n/, 1)[0] ?? "").slice(0, 200),
+  };
 }
 
 /**
- * Maps known error types onto status codes. Anything unrecognised becomes a 500
- * with a generic message, so internal details never reach the client.
+ * Maps errors that carry a status onto that status. Anything else becomes a 500 with a
+ * generic message and a correlation id, so internal details never reach the client.
  */
 export function errorResponse(error: unknown): NextResponse {
-  if (
-    error instanceof AuthenticationError ||
-    error instanceof AuthorizationError ||
-    error instanceof BadRequestError ||
-    error instanceof NotFoundError ||
-    error instanceof ConflictError
-  ) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
+  if (error instanceof HttpError) {
+    const response = NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof TooManyRequestsError) {
+      response.headers.set("Retry-After", String(error.retryAfterSeconds));
+    }
+    return response;
   }
-  console.error("Unhandled API error:", error);
-  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+
+  const errorId = randomUUID();
+  console.error("Unhandled API error", { errorId, ...redactErrorForLog(error) });
+  return NextResponse.json({ error: "Internal server error", errorId }, { status: 500 });
 }

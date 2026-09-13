@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db";
 export const AUDIT_ACTIONS = [
   "USER_LOGIN",
   "USER_LOGIN_FAILED",
+  "USER_LOGIN_THROTTLED",
   "USER_LOGOUT",
   "DOCUMENT_UPLOADED",
   "DOCUMENT_VERSION_ADDED",

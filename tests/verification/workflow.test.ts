@@ -63,11 +63,11 @@ async function uploadAndSign(
 }
 
 describe("the happy path", () => {
-  it.each(ALGORITHMS)("returns AUTHENTIC for an untouched %s-signed document", async (algorithm) => {
+  it.each(ALGORITHMS)("returns VALID for an untouched %s-signed document", async (algorithm) => {
     const document = await uploadAndSign(algorithm);
     const result = await verifyDocument(verifier, document.id);
 
-    expect(result.outcome).toBe("AUTHENTIC");
+    expect(result.outcome).toBe("VALID");
     expect(result.reason).toBeUndefined();
     expect(result.steps.every((step) => step.passed)).toBe(true);
   });
@@ -94,10 +94,10 @@ describe("the happy path", () => {
     ).toBe("VERIFIED");
   });
 
-  it("is repeatable and still AUTHENTIC the second time", async () => {
+  it("is repeatable and still VALID the second time", async () => {
     const document = await uploadAndSign("ECDSA_P256");
-    expect((await verifyDocument(verifier, document.id)).outcome).toBe("AUTHENTIC");
-    expect((await verifyDocument(verifier, document.id)).outcome).toBe("AUTHENTIC");
+    expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
+    expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
   });
 });
 
@@ -208,7 +208,7 @@ describe("Phase 6 case 3: a revoked certificate", () => {
     const certificate = await issueCertificate({ actor: signer, algorithm: "ECDSA_P256" });
     const document = await uploadAndSign("ECDSA_P256", "Signed, then revoked.", certificate.id);
 
-    expect((await verifyDocument(verifier, document.id)).outcome).toBe("AUTHENTIC");
+    expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
 
     await revokeCertificate({
       actor: admin,
@@ -273,7 +273,7 @@ describe("Phase 6 case 5: substituting another algorithm's public key", () => {
     "a %s-signed document fails when the certificate carries a different algorithm's key",
     async (algorithm) => {
       const document = await uploadAndSign(algorithm, `Key substitution test (${algorithm}).`);
-      expect((await verifyDocument(verifier, document.id)).outcome).toBe("AUTHENTIC");
+      expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
 
       const other = ALGORITHMS.find((candidate) => candidate !== algorithm)!;
       const signature = await prisma.signature.findFirstOrThrow({
@@ -360,7 +360,7 @@ describe("Section 6: a document with no signature", () => {
 describe("authorisation", () => {
   it("lets a VERIFIER verify", async () => {
     const document = await uploadAndSign("ED25519");
-    expect((await verifyDocument(verifier, document.id)).outcome).toBe("AUTHENTIC");
+    expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
   });
 
   it("refuses a VIEWER", async () => {
@@ -385,6 +385,6 @@ describe("independence from the key-pair record", () => {
       data: { publicKeyPem: foreign.publicKeyPem },
     });
 
-    expect((await verifyDocument(verifier, document.id)).outcome).toBe("AUTHENTIC");
+    expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
   });
 });

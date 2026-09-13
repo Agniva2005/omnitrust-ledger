@@ -1,11 +1,12 @@
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/lib/db";
-import { assertRole, type Actor } from "@/lib/auth/rbac";
+import { isRole, type Actor } from "@/lib/auth/rbac";
 
 const COOKIE_NAME = "omnitrust_session";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const BCRYPT_ROUNDS = 12;
+const ISSUER = "omnitrust-ledger";
 
 export { COOKIE_NAME, SESSION_TTL_SECONDS };
 
@@ -32,19 +33,43 @@ export async function createSessionToken(actor: Actor): Promise<string> {
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(actor.userId)
     .setIssuedAt()
-    .setIssuer("omnitrust-ledger")
+    .setIssuer(ISSUER)
     .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
     .sign(secret());
 }
 
+/**
+ * Checks the token's signature, issuer and expiry and returns its claims. The algorithm
+ * is pinned so a token cannot select its own verification method.
+ */
 export async function verifySessionToken(token: string): Promise<Actor | null> {
   try {
-    const { payload } = await jwtVerify(token, secret(), { issuer: "omnitrust-ledger" });
-    if (!payload.sub || typeof payload.email !== "string") return null;
-    return { userId: payload.sub, email: payload.email, role: assertRole(payload.role) };
+    const { payload } = await jwtVerify(token, secret(), {
+      issuer: ISSUER,
+      algorithms: ["HS256"],
+    });
+    if (!payload.sub || typeof payload.email !== "string" || !isRole(payload.role)) return null;
+    return { userId: payload.sub, email: payload.email, role: payload.role };
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolves a token to the user as the database describes them now. The token proves who
+ * authenticated; the role is read from the user row, so deleting or demoting a user
+ * takes effect on their next request rather than when the token expires.
+ */
+export async function actorFromSessionToken(token: string): Promise<Actor | null> {
+  const claims = await verifySessionToken(token);
+  if (!claims) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: claims.userId },
+    select: { id: true, email: true, role: true },
+  });
+  if (!user || !isRole(user.role)) return null;
+  return { userId: user.id, email: user.email, role: user.role };
 }
 
 let decoy: Promise<string> | null = null;
@@ -66,7 +91,8 @@ export async function authenticate(email: string, password: string): Promise<Act
     return null;
   }
   if (!(await verifyPassword(password, user.passwordHash))) return null;
-  return { userId: user.id, email: user.email, role: assertRole(user.role) };
+  if (!isRole(user.role)) return null;
+  return { userId: user.id, email: user.email, role: user.role };
 }
 
 export function sessionCookie(token: string) {
@@ -90,5 +116,5 @@ export async function getSession(): Promise<Actor | null> {
   const { cookies } = await import("next/headers");
   const token = (await cookies()).get(COOKIE_NAME)?.value;
   if (!token) return null;
-  return verifySessionToken(token);
+  return actorFromSessionToken(token);
 }

@@ -1,3 +1,5 @@
+import { HttpError } from "@/lib/errors";
+
 export const ROLES = ["ADMIN", "SIGNER", "VERIFIER", "VIEWER"] as const;
 
 export type Role = (typeof ROLES)[number];
@@ -36,7 +38,7 @@ const CAPABILITIES: Record<Capability, readonly Role[]> = {
 
 export type Actor = { userId: string; email: string; role: Role };
 
-export class AuthenticationError extends Error {
+export class AuthenticationError extends HttpError {
   readonly status = 401;
   constructor(message = "Authentication required") {
     super(message);
@@ -44,7 +46,7 @@ export class AuthenticationError extends Error {
   }
 }
 
-export class AuthorizationError extends Error {
+export class AuthorizationError extends HttpError {
   readonly status = 403;
   constructor(message = "Insufficient permissions") {
     super(message);

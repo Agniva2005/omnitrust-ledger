@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { errorResponse } from "@/lib/api";
+import { errorResponse, TooManyRequestsError } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
+import { accountKey, clientKey, loginRateLimit } from "@/lib/auth/rate-limit";
 import { authenticate, createSessionToken, sessionCookie } from "@/lib/auth/session";
 
 // Not z.string().email(): the demo accounts named in CLAUDE.md Section 5 Phase 9
@@ -20,17 +21,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
+    const account = accountKey(parsed.data.email);
+    const client = clientKey(request);
+
+    // Checked before the password, so a locked account costs no bcrypt work and a
+    // correct password cannot be confirmed while the lock is in force.
+    const retryAfter = loginRateLimit.retryAfterSeconds(account, client);
+    if (retryAfter > 0) {
+      await appendAuditEntry({
+        action: "USER_LOGIN_THROTTLED",
+        targetType: "User",
+        targetId: account,
+        metadata: { attemptedEmail: account, retryAfterSeconds: retryAfter },
+      });
+      throw new TooManyRequestsError(
+        "Too many failed sign-in attempts. Try again later.",
+        retryAfter,
+      );
+    }
+
     const actor = await authenticate(parsed.data.email, parsed.data.password);
     if (!actor) {
+      loginRateLimit.recordFailure(account, client);
       // The attempted identifier is recorded; the submitted password never is.
       await appendAuditEntry({
         action: "USER_LOGIN_FAILED",
         targetType: "User",
-        targetId: parsed.data.email,
-        metadata: { attemptedEmail: parsed.data.email },
+        targetId: account,
+        metadata: { attemptedEmail: account },
       });
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
     }
+
+    loginRateLimit.recordSuccess(account);
 
     await appendAuditEntry({
       actorUserId: actor.userId,

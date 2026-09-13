@@ -87,7 +87,8 @@ describe("a realistic demo sequence", () => {
       .map((entry) => JSON.parse(entry.metadataJson) as { outcome: string; reason: string | null });
 
     expect(verifications).toHaveLength(3);
-    expect(verifications.filter((entry) => entry.outcome === "AUTHENTIC")).toHaveLength(1);
+    expect(verifications.filter((entry) => entry.outcome === "VALID")).toHaveLength(1);
+    expect(verifications.filter((entry) => entry.outcome === "INVALID")).toHaveLength(2);
     expect(verifications.map((entry) => entry.reason)).toContain("HASH_MISMATCH");
     expect(verifications.map((entry) => entry.reason)).toContain("CERTIFICATE_REVOKED");
   });

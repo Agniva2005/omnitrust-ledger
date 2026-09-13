@@ -125,7 +125,7 @@ describe("ECDSA P-256 interoperates with @noble/curves", () => {
     expect(publicPoint[0]).toBe(0x04);
 
     const signature = p256.Signature.fromDER(derSignature.toString("hex"));
-    expect(p256.verify(signature, innerHash, publicPoint)).toBe(true);
+    expect(p256.verify(signature.toCompactRawBytes(), innerHash, publicPoint)).toBe(true);
   });
 
   it("our provider verifies what @noble/curves signs", async () => {

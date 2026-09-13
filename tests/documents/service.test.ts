@@ -167,16 +167,17 @@ describe("versioning", () => {
     ).rejects.toThrow(/identical/);
   });
 
-  it("refuses a version on someone else's document", async () => {
+  it("refuses a version on someone else's document, as forbidden rather than a conflict", async () => {
     const document = await upload("mine");
     const verifier = await prisma.user.findUniqueOrThrow({ where: { email: "verifier@demo" } });
-    await expect(
+    const attempt = () =>
       addDocumentVersion(
         { userId: verifier.id, email: verifier.email, role: "SIGNER" },
         document.id,
         "contract.txt",
         Buffer.from("theirs"),
-      ),
-    ).rejects.toThrow(/owner or an ADMIN/);
+      );
+    await expect(attempt()).rejects.toThrow(/owner or an ADMIN/);
+    await expect(attempt()).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
   });
 });

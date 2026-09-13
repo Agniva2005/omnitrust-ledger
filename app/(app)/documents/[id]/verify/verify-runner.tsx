@@ -6,12 +6,43 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-type VerificationStep = { step: string; passed: boolean; detail?: string };
+type StepStatus = "PASS" | "FAIL" | "UNAVAILABLE" | "SKIPPED";
+
+type VerificationStep = { step: string; status: StepStatus; passed: boolean; detail?: string };
+
+type Outcome = "VALID" | "INVALID" | "UNVERIFIABLE" | "ERROR";
 
 type VerificationResult = {
-  outcome: "AUTHENTIC" | "INVALID";
+  outcome: Outcome;
   reason?: string;
   steps: VerificationStep[];
+};
+
+const OUTCOME_DISPLAY: Record<
+  Outcome,
+  { label: string; variant: "success" | "destructive" | "outline"; summary: string }
+> = {
+  VALID: {
+    label: "AUTHENTIC",
+    variant: "success",
+    summary: "Every check passed.",
+  },
+  INVALID: {
+    label: "INVALID",
+    variant: "destructive",
+    summary: "A check found positive evidence that this signed document cannot be trusted.",
+  },
+  UNVERIFIABLE: {
+    label: "UNVERIFIABLE",
+    variant: "outline",
+    summary:
+      "Evidence needed for a decision could not be obtained. This is not a finding that the document was tampered with, and not a finding that it is authentic.",
+  },
+  ERROR: {
+    label: "VERIFICATION ERROR",
+    variant: "destructive",
+    summary: "The verifier itself failed. The result supports no conclusion either way.",
+  },
 };
 
 const REASON_EXPLANATIONS: Record<string, string> = {
@@ -22,7 +53,21 @@ const REASON_EXPLANATIONS: Record<string, string> = {
   CERTIFICATE_EXPIRED: "The signing certificate is outside its validity period.",
   CERTIFICATE_REVOKED: "The signing certificate has been revoked.",
   CERTIFICATE_CHAIN_INVALID:
-    "The certificate does not chain to this installation's root CA, or its stored metadata disagrees with the certificate itself.",
+    "The certificate does not chain to this installation's CA, does not carry a document-signing profile, or its stored metadata disagrees with the certificate itself.",
+  STORAGE_UNAVAILABLE:
+    "The stored bytes could not be read, so the content could not be checked.",
+  CERTIFICATE_NOT_FOUND:
+    "The certificate this signature refers to cannot be found, so the signer cannot be established.",
+  UNSUPPORTED_ALGORITHM:
+    "This installation has no provider registered for the signature's algorithm.",
+  INTERNAL_ERROR: "The verifier encountered an internal fault and could not finish.",
+};
+
+const STEP_STYLE: Record<StepStatus, string> = {
+  PASS: "text-success",
+  FAIL: "text-destructive",
+  UNAVAILABLE: "text-amber-600",
+  SKIPPED: "text-muted-foreground",
 };
 
 export function VerifyRunner({ documentId }: { documentId: string }) {
@@ -53,6 +98,8 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
     setPending(false);
   }
 
+  const display = result ? OUTCOME_DISPLAY[result.outcome] : null;
+
   return (
     <Card>
       <CardHeader>
@@ -78,19 +125,17 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
           </p>
         )}
 
-        {result && (
+        {result && display && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge variant={result.outcome === "AUTHENTIC" ? "success" : "destructive"}>
-                {result.outcome}
-              </Badge>
-              {result.reason && (
-                <span className="font-mono text-sm text-destructive">{result.reason}</span>
-              )}
+              <Badge variant={display.variant}>{display.label}</Badge>
+              {result.reason && <span className="font-mono text-sm">{result.reason}</span>}
             </div>
 
+            <p className="max-w-prose text-sm text-muted-foreground">{display.summary}</p>
+
             {result.reason && (
-              <p className="max-w-prose rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+              <p className="max-w-prose rounded-md border p-3 text-sm">
                 {REASON_EXPLANATIONS[result.reason] ?? result.reason}
               </p>
             )}
@@ -103,13 +148,9 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
                     step.step.startsWith("4.") ? "ml-6 border-dashed" : ""
                   }`}
                 >
-                  <span
-                    aria-hidden
-                    className={step.passed ? "text-success" : "text-destructive"}
-                  >
-                    {step.passed ? "PASS" : "FAIL"}
+                  <span className={`w-24 shrink-0 font-mono text-xs ${STEP_STYLE[step.status]}`}>
+                    {step.status}
                   </span>
-                  <span className="sr-only">{step.passed ? "passed" : "failed"}</span>
                   <span className="min-w-0">
                     <span className="font-medium">{step.step.replace(/^4\./, "")}</span>
                     {step.detail && (

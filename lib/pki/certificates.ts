@@ -1,9 +1,9 @@
 // PKI layer: certificate issuance and revocation.
 import type { Certificate, KeyPair } from "@prisma/client";
 import * as x509 from "@peculiar/x509";
-import { BadRequestError, ConflictError, NotFoundError } from "@/lib/api";
+import { BadRequestError, NotFoundError } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
-import { requireCapability, type Actor } from "@/lib/auth/rbac";
+import { AuthorizationError, requireCapability, type Actor } from "@/lib/auth/rbac";
 import {
   configureCertificateProvider,
   importPublicKey,
@@ -51,7 +51,7 @@ export async function issueCertificate(
   const subjectUserId = input.subjectUserId ?? input.actor.userId;
 
   if (subjectUserId !== input.actor.userId && input.actor.role !== "ADMIN") {
-    throw new ConflictError("Only an ADMIN can issue a certificate for another user");
+    throw new AuthorizationError("Only an ADMIN can issue a certificate for another user");
   }
 
   const subject = await prisma.user.findUnique({ where: { id: subjectUserId } });
@@ -66,6 +66,13 @@ export async function issueCertificate(
   }
 
   const ca = await getRootCa();
+  const caNotAfter = caCertificate(ca).notAfter;
+  if (notAfter > caNotAfter) {
+    throw new BadRequestError(
+      `A certificate cannot outlive its issuing CA, which is valid until ${caNotAfter.toISOString()}`,
+    );
+  }
+
   const keys = await orchestrator.generateKeyPair(algorithm);
 
   const keyPair = await prisma.keyPair.create({

@@ -2,7 +2,7 @@
 import type { Document, DocumentVersion } from "@prisma/client";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
-import { requireCapability, type Actor } from "@/lib/auth/rbac";
+import { AuthorizationError, requireCapability, type Actor } from "@/lib/auth/rbac";
 import { sha256Hex } from "@/lib/crypto/hash";
 import {
   assertDocumentState,
@@ -191,7 +191,7 @@ async function getDocumentOwnedBy(actor: Actor, documentId: string): Promise<Doc
   const document = await prisma.document.findUnique({ where: { id: documentId } });
   if (!document) throw new NotFoundError("Document not found");
   if (document.ownerUserId !== actor.userId && actor.role !== "ADMIN") {
-    throw new ConflictError("Only the document owner or an ADMIN can add a version");
+    throw new AuthorizationError("Only the document owner or an ADMIN can add a version");
   }
   return document;
 }

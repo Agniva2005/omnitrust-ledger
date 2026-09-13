@@ -73,15 +73,19 @@ describe("validity period", () => {
   });
 
   it("evaluates against a caller-supplied instant, so expiry can be checked historically", async () => {
+    // Both instants fall inside the issuing CA's own validity period; an instant before
+    // the CA existed is a chain failure, covered in tests/pki/chain-profile.test.ts.
     const certificate = await issueCertificate({
       actor: signer,
       algorithm: "RSA",
-      notBefore: new Date("2024-01-01T00:00:00Z"),
-      notAfter: new Date("2024-06-01T00:00:00Z"),
+      notBefore: new Date(Date.now() - 60_000),
+      notAfter: new Date(Date.now() + 86_400_000),
     });
 
-    expect((await validateCertificate(certificate, { at: new Date("2024-03-01") })).valid).toBe(true);
-    expect((await validateCertificate(certificate, { at: new Date("2024-09-01") })).reason).toBe(
+    const withinWindow = new Date(Date.now() + 3_600_000);
+    const afterWindow = new Date(Date.now() + 2 * 86_400_000);
+    expect((await validateCertificate(certificate, { at: withinWindow })).valid).toBe(true);
+    expect((await validateCertificate(certificate, { at: afterWindow })).reason).toBe(
       "CERTIFICATE_EXPIRED",
     );
   });
