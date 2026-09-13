@@ -621,3 +621,58 @@ Of the 22 route handlers under `app/api`, only 8 were imported by any test. The 
 - `npm test`: **687 passed, 1 skipped** across 50 files (673 after Phase 10). New: `tests/api/routes.test.ts` (13 tests, each checking several routes and statuses) and `tests/api/route-coverage.test.ts` (1). The five certificate-related route tests failed on the leak before the fix and passed after it; the API tests then ran 23/23.
 - The fix is exercised through the real route handler in the tests; it was not re-checked over HTTP against `npm run dev`.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+
+---
+
+## Phase 12 — Local CI: `npm run ci`
+
+### What changed
+
+- **`scripts/ci.ts`** runs every quality gate locally, with no network access and no hosted CI service. The steps, in order:
+  1. installed dependencies match `package.json` (`npm ls --depth=0`, offline);
+  2. the Prisma schema validates;
+  3. the anchor contract artifact is a reproducible compile;
+  4. ESLint;
+  5. TypeScript type-check;
+  6. the crypto-boundary check;
+  7. the **unit**, **integration** and **security** test suites;
+  8. the production build;
+  9. a benchmark **smoke run**, whose output is also checked in-process: schema 2, every registered algorithm, plausible statistics.
+- **Behaviour of the runner:**
+  - each tool is started as `node <entry point>`, because spawning npm/npx `.cmd` shims without a shell fails on Windows;
+  - output streams live, and the last 40 lines of a failing step are kept;
+  - a warning is printed if something listens on port 3000 before the build, since `next dev` and `next build` share `.next`;
+  - it ends with a PASS / FAIL / SKIPPED summary and a JSON report in `storage/ci/report.json` (gitignored) recording node, platform, git commit and dirty flag;
+  - options `--fail-fast`, `--only a,b` and `--skip a,b`; unknown step names are refused;
+  - it exits 0 only if every selected step passed.
+- **Test suites** are defined by directory: unit is `crypto`, `benchmarks`, `ci` and the scaffold test; integration is `documents`, `pki`, `audit`, `anchoring`, `prisma`, `dashboard` and `verification`; security is `auth`, `http`, `api` and `security-lab`.
+- **`tests/ci/ci-plan.test.ts`** checks the plan without running CI recursively:
+  - every test file belongs to exactly one suite, so a new test cannot fall outside CI, and every suite entry exists;
+  - every step's program exists;
+  - the static gates and all three test suites run before the build, and the smoke run comes last;
+  - `npm run ci` is wired to the runner, and its reports are gitignored.
+
+### Verification
+
+- **`npm run ci`, full run: CI PASSED in 237 s**, all 11 steps PASS:
+
+  | Step | Time |
+  | --- | --- |
+  | dependencies | 1 s |
+  | prisma-schema | 2 s |
+  | contract-artifact | 1 s |
+  | lint | 3 s |
+  | typecheck | 5 s |
+  | crypto-boundary | 0 s |
+  | tests-unit: 211 passed, 1 skipped | 16 s |
+  | tests-integration: 369 passed | 97 s |
+  | tests-security: 111 passed | 70 s |
+  | build | 39 s |
+  | benchmark-smoke | 2 s |
+
+  The three suites total **691 passed, 1 skipped**: the 687 after Phase 11 plus the 4 plan tests. The run recorded commit `abd2d56` with this phase's files uncommitted. Its output is kept in `storage/ci/ci-run.log`; the report file was later overwritten by the option checks below.
+- **Option handling and failure detection:**
+  - `--only no-such-step` is refused with the list of valid steps and exit code 1;
+  - `--only crypto-boundary` runs that step alone, marks the rest "not selected", and exits 0;
+  - a genuine failure, produced without changing any code by running from a copy of `node` that cannot locate npm, reports `FAIL dependencies — npm's JavaScript entry point was not found` and `CI FAILED (1 step)`, and exits 1.
+- The full CI run includes type-check, lint, the boundary check and the build.

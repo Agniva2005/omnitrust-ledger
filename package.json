@@ -16,7 +16,8 @@
     "export:signature": "tsx scripts/export-signature.ts",
     "check:boundary": "tsx scripts/check-crypto-boundary.ts",
     "chain": "hardhat node --hostname 127.0.0.1 --port 8545",
-    "contract:compile": "tsx scripts/compile-anchor-contract.ts"
+    "contract:compile": "tsx scripts/compile-anchor-contract.ts",
+    "ci": "tsx scripts/ci.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
