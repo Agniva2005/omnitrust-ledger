@@ -152,6 +152,9 @@ A local, demo-grade PKI document signing system. It has five signature algorithm
 | Recorded environment and methodology (Node, V8, OpenSSL, CPU, memory, git commit and dirty flag) | IMPLEMENTED | `public/benchmarks.json` (generated locally, gitignored) |
 | Smoke mode for CI that never overwrites real results | IMPLEMENTED | Hash comparison in Phase 10; validated in `npm run ci` |
 | Implementation-independent comparison of algorithms | LIMITED BY LIBRARY | Ed25519 runs in pure JavaScript while the others run in native OpenSSL, so its timings describe the library; stated on the page |
+| Pairwise significance testing: Mann-Whitney U (primary), Welch's t, Holm correction, Cliff's delta, Hodges-Lehmann shift | IMPLEMENTED | `lib/benchmarks/inference.ts`, `lib/benchmarks/comparison.ts`; checked against closed forms (`tests/benchmarks/inference.test.ts`) |
+| Post-quantum migration study across the trust chain (certificate, signature, CMS, time-stamp token, CRL growth, anchoring commitment; issuance, end-to-end sign and verify, CMS verification, orchestration overhead) | IMPLEMENTED | `npm run study:migration` in an isolated installation, with interleaved seeded rounds; results in `docs/upgrade-log.md` Phase 17 |
+| Cross-machine reproducibility of timings | PARTIAL | The study records its environment and seed, but has been run on one machine only |
 
 ## 15. Testing
 

@@ -946,3 +946,71 @@ The dashboard read stored certificate statuses. The seeded expired certificate t
 - No released OpenSSL CLI implements composite ML-DSA; interoperability rests on the draft authors' reference vectors.
 - Only one of the draft's 18 combinations is implemented.
 - The CA still signs certificates with ECDSA P-256. Composite certificate authorities are not implemented, because certificate signing goes through WebCrypto.
+
+---
+
+## Phase 17 — Post-quantum migration study and inferential statistics
+
+**Why.** The research direction is empirical evidence for post-quantum migration: what changes, and what does not, when a signing workflow moves from classical to post-quantum and hybrid signatures. Descriptive statistics alone cannot say whether two algorithms differ. The readiness review (`docs/audit/03-enterprise-and-publication-readiness.md`, §3.2.4) also asked for significance testing and an orchestration-overhead baseline.
+
+**Inferential statistics.**
+- **`lib/benchmarks/inference.ts`** holds pure functions:
+  - the Mann–Whitney U test with average ranks for ties, tie-corrected variance, a continuity correction and the normal approximation;
+  - Cliff's δ with Romano et al.'s magnitude thresholds, and the Hodges–Lehmann shift;
+  - Welch's t-test with Welch–Satterthwaite degrees of freedom and a p-value from Student's t, through the regularised incomplete beta function (a Lentz continued fraction with Lanczos log-gamma);
+  - Holm's step-down adjustment.
+- **`lib/benchmarks/comparison.ts`** compares every algorithm pair for one operation, with Holm applied within the operation. The primary call is the Holm-adjusted Mann–Whitney p-value below 0.05. Timing samples are skewed, so Welch is reported but secondary.
+- **Tests check closed forms, not other software's output.** Student's t with 1 and 2 degrees of freedom has an elementary distribution function. Other checks: I_x(a,1) = x^a, the incomplete-beta symmetry relation, countable U and δ for small samples, and a hand-computed Holm adjustment.
+- **A precision bug found by those tests.** The first normal-distribution approximation (Abramowitz & Stegun 7.1.26) gave Φ(0) = 0.5000000005, so identical samples scored p = 0.999999999, and computing tails as 1 − Φ lost precision exactly where small p-values live. It was replaced with erf's Maclaurin series for |z/√2| < 3 and erfc's continued fraction beyond, with the tail computed directly. The reference constants the tests assert (Φ(1.959963984540054) = 0.975, Φ(3), Q(5)) were checked by integrating the normal density independently with composite Simpson's rule; they agree to a relative 6 × 10⁻¹³ or better.
+
+**The study: `npm run study:migration`** (`scripts/migration-study.ts`).
+- It builds a throwaway installation (its own database, storage, master key and JWT secret) and runs itself as a worker bound to it. It fingerprints the development database before and after, and deletes the installation afterwards.
+- Everything is measured through the application's own services. Algorithm identifiers are derived from the registry, never written, so the crypto-boundary check still passes.
+- **Sizes:** SPKI, certificate, signature, CMS, RFC 3161 token, anchoring commitment, and CRL growth per revoked certificate.
+- **Timings:**
+  - certificate issuance;
+  - end-to-end signing (hash, signature, two time-stamps, CMS, encrypted storage, audit);
+  - ten-step verification, which must return VALID every run or the study aborts;
+  - standalone CMS verification;
+  - orchestrator versus direct-provider sign and verify.
+- Raw samples, summaries, pairwise comparisons, the environment and the seed go to `public/migration-study.json`, which is gitignored like `public/benchmarks.json`.
+
+**A confound found and removed.**
+- **The first design measured each algorithm in one contiguous block.** It produced effects that cannot be causal:
+  - the composite's CMS verification looked 7 ms faster than pure ML-DSA-65's, although it contains an ML-DSA-65 verification (Cliff's δ = 0.94);
+  - RSA's orchestrator looked faster than the provider call it wraps, and "significantly" so.
+- **That is the signature of drift, warm-up and database growth attributed to whichever algorithm ran at the time.** The design now interleaves:
+  - every timed operation runs in rounds;
+  - each round visits every algorithm once in an order shuffled by a seeded Mulberry32 generator, with the seed recorded;
+  - orchestrator/provider pairs alternate which runs first;
+  - documents are uploaded before timing starts.
+- **The rerun removed both artefacts.** Composite and ML-DSA-65 CMS verification: 15.03 against 14.63 ms (ratio 0.97, δ negligible, Holm p = 0.73). Orchestrator against provider: negligible and non-significant for all five algorithms (|Hodges–Lehmann shift| ≤ 0.05 ms).
+- `tests/benchmarks/study-design.test.ts` checks that the generator repeats per seed and spreads evenly, and that a shuffle is always a permutation which puts every algorithm first in some rounds.
+
+**Results** (interleaved run, seed 20260914, n = 30 end to end and n = 200 primitive per algorithm, one machine: AMD Ryzen 7 8840HS, Node 24.14, OpenSSL 3.5.5):
+
+| | Certificate | Signature | CMS | Time-stamp token | CRL growth | Commitment |
+| --- | --- | --- | --- | --- | --- | --- |
+| RSA-PSS 3072 | 789 | 384 | 3251 | ~1118 | ~50 | 32 |
+| ECDSA P-256 | 460 | 71 | 2552 | ~1118 | ~50 | 32 |
+| Ed25519 | 412 | 64 | 2523 | ~1118 | ~50 | 32 |
+| ML-DSA-65 | 2341 | 3309 | 7706 | ~1118 | ~50 | 32 |
+| ML-DSA-65 + ECDSA P-256 | 2407 | 3380 | 7842 | ~1118 | ~50 | 32 |
+
+(bytes; the token, CRL growth and commitment columns span 1117–1120, 49–51 and exactly 32 across all algorithms and runs)
+
+- **Post-quantum cost concentrates in the signature-bearing artefacts.** The certificate is about 5× an ECDSA certificate and CMS about 3×. The composite adds only 71 bytes to its signature over ML-DSA-65 alone.
+- **Time-stamp tokens, CRL growth and anchoring commitments do not depend on the end-entity algorithm at all.** This was measured, not assumed: those artefacts are produced by services whose own algorithms did not change.
+- **At the application level the cryptographic difference disappears into the workflow.**
+  - End-to-end signing takes 40.6–44.2 ms for every algorithm, and only 3 of 10 pairs differ significantly.
+  - Ten-step verification takes 30.7–33.7 ms, with 0 of 10 pairs differing.
+  - The signature primitives themselves differ by up to 13× (ECDSA 0.11 ms against RSA 1.5 ms to sign), but they are a few percent of a workflow dominated by time-stamping, CMS assembly, SQLite and the filesystem.
+- **Certificate issuance does separate:** RSA-PSS 3072 at 146.7 ms against about 26 ms for every other algorithm, the cost of RSA key generation.
+- **The crypto-agility layer costs nothing measurable.**
+
+**Limits, stated.**
+- One machine, one run per design, and SQLite and filesystem latency inside the end-to-end numbers.
+- The time-stamp authority and CA sign with fixed classical algorithms, so migrating those is not measured.
+- Mann–Whitney's normal approximation assumes about 20 or more samples per group; the study uses 30 and 200.
+- Cross-machine reproducibility is not established.
+- **Verification.** Inference 14, comparison 4 and study-design 4 tests pass; typecheck and lint pass.

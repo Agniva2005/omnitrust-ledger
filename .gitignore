@@ -16,6 +16,7 @@ prisma/*.db-journal
 # Document blobs, the local master encryption key, and generated benchmark results
 storage/
 public/benchmarks.json
+public/migration-study.json
 
 next-env.d.ts
 *.tsbuildinfo
