@@ -50,6 +50,12 @@ export const mlDsa44TestProvider = {
     signature: { fixedBytes: 2420, maxBytes: 2420, encoding: "FIPS 204 sigEncode, 2420 bytes" },
     serialization: { publicKey: "SubjectPublicKeyInfo, PEM", privateKey: "PKCS #8, PEM" },
     oids: { publicKey: "2.16.840.1.101.3.4.3.17", signature: "2.16.840.1.101.3.4.3.17" },
+    cms: {
+      digestAlgorithmOid: "2.16.840.1.101.3.4.2.3",
+      signatureAlgorithmOid: "2.16.840.1.101.3.4.3.17",
+      signatureParametersDer: null,
+      standard: "RFC 9882 (ML-DSA in CMS)",
+    },
     interoperability: { opensslVerify: null, note: "Test-only provider." },
     capabilities: {
       generateKeyPair: true,

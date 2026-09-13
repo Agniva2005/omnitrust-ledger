@@ -64,6 +64,15 @@ export type AlgorithmMetadata<Id extends string = string> = {
     publicKey: string;
     signature: string;
   };
+  /** How this algorithm is identified inside CMS SignedData (RFC 5652). */
+  cms: {
+    /** SignerInfo digestAlgorithm, also used for the message-digest attribute. */
+    digestAlgorithmOid: string;
+    signatureAlgorithmOid: string;
+    /** DER of the signatureAlgorithm parameters as hex, or null when they must be absent. */
+    signatureParametersDer: string | null;
+    standard: string;
+  };
   interoperability: {
     /**
      * An OpenSSL CLI command that independently verifies a signature produced by this

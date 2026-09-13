@@ -80,6 +80,13 @@ export const eddsaProvider = {
       publicKey: "1.3.101.112",
       signature: "1.3.101.112",
     },
+    cms: {
+      // RFC 8419: with signed attributes, the digest algorithm MUST be SHA-512.
+      digestAlgorithmOid: "2.16.840.1.101.3.4.2.3",
+      signatureAlgorithmOid: "1.3.101.112",
+      signatureParametersDer: null,
+      standard: "RFC 8419 (EdDSA in CMS)",
+    },
     interoperability: {
       opensslVerify:
         "openssl pkeyutl -verify -pubin -inkey {publicKey} -rawin -in {message} -sigfile {signature}",

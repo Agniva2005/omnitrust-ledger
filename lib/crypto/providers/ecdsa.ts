@@ -79,6 +79,12 @@ export const ecdsaProvider = {
       publicKey: "1.2.840.10045.2.1",
       signature: "1.2.840.10045.4.3.2",
     },
+    cms: {
+      digestAlgorithmOid: "2.16.840.1.101.3.4.2.1",
+      signatureAlgorithmOid: "1.2.840.10045.4.3.2",
+      signatureParametersDer: null,
+      standard: "RFC 5753 / RFC 5754 (ECDSA with SHA-256 in CMS)",
+    },
     interoperability: {
       opensslVerify: "openssl dgst -sha256 -verify {publicKey} -signature {signature} {message}",
       note: "OpenSSL 1.1.1 or later.",

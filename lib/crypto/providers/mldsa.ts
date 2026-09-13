@@ -84,6 +84,13 @@ export const mlDsa65Provider = {
       publicKey: "2.16.840.1.101.3.4.3.18",
       signature: "2.16.840.1.101.3.4.3.18",
     },
+    cms: {
+      // RFC 9882: SHA-512 MUST be supported with every ML-DSA parameter set.
+      digestAlgorithmOid: "2.16.840.1.101.3.4.2.3",
+      signatureAlgorithmOid: "2.16.840.1.101.3.4.3.18",
+      signatureParametersDer: null,
+      standard: "RFC 9882 (ML-DSA in CMS)",
+    },
     interoperability: {
       opensslVerify: null,
       note:

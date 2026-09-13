@@ -85,6 +85,15 @@ export const rsaProvider = {
       publicKey: "1.2.840.113549.1.1.1",
       signature: "1.2.840.113549.1.1.10",
     },
+    cms: {
+      digestAlgorithmOid: "2.16.840.1.101.3.4.2.1",
+      signatureAlgorithmOid: "1.2.840.113549.1.1.10",
+      // RSASSA-PSS-params: SHA-256, MGF1 with SHA-256, 32-byte salt. Byte-identical to the
+      // parameters OpenSSL writes into its own RSA-PSS CMS signatures.
+      signatureParametersDer:
+        "3034a00f300d06096086480165030402010500a11c301a06092a864886f70d010108300d06096086480165030402010500a203020120",
+      standard: "RFC 4056 (RSASSA-PSS in CMS)",
+    },
     interoperability: {
       opensslVerify:
         "openssl dgst -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:32 -verify {publicKey} -signature {signature} {message}",

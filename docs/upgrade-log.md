@@ -198,3 +198,31 @@ Phase 4 is split into three commits: 4a (revocation reasons and CRLs, this entry
 - Over real HTTP against `npm run dev`: both downloads are served without a session with the right content types; OpenSSL verifies the downloaded CRL; the revoke endpoint rejects an unknown reason and a future invalidity date with 400; revoking with `keyCompromise` and an invalidity date issued a new CRL that OpenSSL reads with both fields. (An ML-DSA certificate cannot be checked with `openssl verify` on the 3.2.4 CLI, which cannot parse ML-DSA keys; the automated OpenSSL checks use ECDSA certificates.)
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
 - Browser, signed in as `admin@demo`: each active certificate's Revoke button opens a form with the RFC 5280 reason picker and its description, an invalidity-date field and a comment; the previously revoked certificate shows `REVOKED` / `CERTIFICATE_REVOKED`; no console errors. (The form was not confirmed, to leave the seeded demo certificates intact; revocation itself was exercised over HTTP above.)
+
+---
+
+## Phase 4b — A local RFC 3161 Time-Stamp Authority
+
+### What changed
+
+- **CMS identifiers in provider metadata.** Each provider now declares how it appears in CMS SignedData: digest OID, signature OID and exact signature parameters. SHA-256 for RSA-PSS and ECDSA; SHA-512 for Ed25519 (RFC 8419: MUST) and ML-DSA-65 (RFC 9882). The RSASSA-PSS parameter DER was not written from memory: it was generated with `@peculiar/asn1-rsa` and found byte-identical to the parameters OpenSSL writes into its own RSA-PSS CMS signature. The time-stamp authority reads these instead of assuming ECDSA; Phase 5 will reuse them.
+- **`lib/pki/cms.ts`**: CMS building blocks shared with Phase 5 — signed attributes in DER SET OF order (X.690 §11.6), the ESS signingCertificateV2 attribute (RFC 5035), signer identifiers, and a small DER walker with an arbitrary-size OBJECT IDENTIFIER decoder (see below). ASN.1 only; every digest and signature goes through the orchestrator.
+- **`lib/pki/tsa.ts`**, the local Time-Stamp Authority:
+  - its certificate is issued by the local CA with a **critical `id-kp-timeStamping`** as its only extended key usage (RFC 3161 §2.3), a policy OID under the unregistered ITU-T X.667 UUID arc (`2.25.<uuid>`), and a validity that cannot outlive the CA;
+  - tokens are CMS SignedData over a TSTInfo with whole-second `genTime`, a stated one-second accuracy, content-type, signing-time, message-digest and signingCertificateV2 attributes, signed through the orchestrator;
+  - `verifyTimestampToken()` returns VALID / INVALID / UNAVAILABLE, never collapsing them: structure, message imprint, issuing authority, signed attributes, signature, the authority certificate's chain, EKU and validity at `genTime`, and the authority's own revocation status under the Phase 4a policy (a token survives a later non-compromise revocation of the authority; a compromise without an invalidity date defeats it; unreadable revocation evidence makes it unavailable).
+- **RFC 3161 over HTTP**: `POST /api/tsa` (DER `application/timestamp-query` in, `application/timestamp-reply` out), requiring a signed-in account, answering requests it cannot honour with RFC 3161 rejections (`badAlg`, `badDataFormat`, `unacceptedPolicy`, `unacceptedExtension`) rather than errors, echoing the nonce, and including the certificate only when `certReq` asks. `GET /api/pki/tsa` publishes the authority's certificate.
+- **Every signature is time-stamped** over the SHA-256 of its signature value (RFC 3161 Appendix A), stored with the signature and audited as `TIMESTAMP_ISSUED`. An unavailable authority is audited as `TIMESTAMP_UNAVAILABLE` and does not block signing: the signature stays valid but cannot later be shown to predate a revocation. Using the token as proof of existence during document verification is Phase 4c.
+
+### Library limitations found and worked around
+
+1. **`@peculiar/asn1-ess` 2.9.4 cannot parse the DER form of ESSCertIDv2 that RFC 5035 requires.** When `hashAlgorithm` is the SHA-256 default, DER must omit it (X.690 §11.5), and the parser then fails with "Data does not match to ESSCertIDv2 ASN1 schema". Every valid token looked malformed to our own verifier while OpenSSL accepted it. The attribute is now read with `asn1js` against the RFC structure; encoding is unchanged. Unit tests cover the DER form, an explicit-SHA-256 form another implementation might send, and a non-SHA-256 hash, which is refused.
+2. **`asn1js` renders an OBJECT IDENTIFIER arc beyond `Number.MAX_SAFE_INTEGER` as hex.** The TSA's 128-bit UUID policy arc therefore read back as `2.25.{0173…}`, which would have rejected any client naming the policy in its request as `unacceptedPolicy`. Policies are now read from the DER with a BigInt decoder (X.690 §8.19), tested against a real 128-bit arc and all three top-level arcs.
+3. **A test mistake, caught by the verifier.** Two tests back-dated a token by a minute, before the freshly created authority's certificate existed; the verifier refused it as outside the certificate's validity, which is correct. The tests now wait out the token's accuracy window before revoking, and a new test asserts the back-dated case is refused.
+
+### Verification
+
+- `npm test`: **525 passed, 1 skipped** across 37 files (496 after Phase 4a).
+- Automated OpenSSL CLI checks (3.2.4): `openssl ts -verify` accepts a stored token against the time-stamped data and rejects altered data; an `openssl ts -query` sent to the HTTP endpoint returns `Status: Granted` with the nonce echoed, and `openssl ts -verify -queryfile` reports `Verification: OK`.
+- Over real HTTP against `npm run dev`: a document uploaded and signed through the API stored a 1117-byte token that verifies `VALID` in-app and `Verification: OK` in OpenSSL against the signature value, with a matching `TIMESTAMP_ISSUED` audit entry; `openssl ts -query` → `curl POST /api/tsa` → `openssl ts -verify -queryfile` reports `Verification: OK` with the full 128-bit policy OID; the endpoint refuses a cross-site POST (403) and an unauthenticated one (401).
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`: clean.

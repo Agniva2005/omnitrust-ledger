@@ -1,17 +1,19 @@
 // Document Management layer: the signing action.
 //
 // Composes three layers without doing any crypto itself: it asks the PKI layer for
-// the certificate and key, the orchestrator for the signature, and the lifecycle for
-// the state transition.
+// the certificate, key and time-stamp, the orchestrator for the signature, and the
+// lifecycle for the state transition.
 import type { Signature } from "@prisma/client";
-import { ConflictError, NotFoundError } from "@/lib/api";
+import { ConflictError, NotFoundError, redactErrorForLog } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
 import { AuthorizationError, requireCapability, type Actor } from "@/lib/auth/rbac";
+import { sha256 } from "@/lib/crypto/hash";
 import { assertAlgorithm, orchestrator } from "@/lib/crypto/orchestrator";
 import { prisma } from "@/lib/db";
 import { assertPath, assertDocumentState } from "@/lib/documents/lifecycle";
 import { latestVersion, recomputeVersionHash } from "@/lib/documents/service";
 import { privateKeyPemFor, publicKeyPemFromCertificate } from "@/lib/pki/certificates";
+import { issueTimestampToken, type IssuedTimestamp } from "@/lib/pki/tsa";
 import { validateCertificate } from "@/lib/pki/validation";
 
 export type SignDocumentInput = {
@@ -24,6 +26,8 @@ export type SignDocumentResult = {
   signature: Signature;
   documentStatus: string;
   signedHash: string;
+  /** The trusted time-stamp, or null if the Time-Stamp Authority could not provide one. */
+  timestamp: Pick<IssuedTimestamp, "genTime" | "accuracyMs" | "serialNumber"> | null;
 };
 
 function isUniqueViolation(error: unknown): boolean {
@@ -32,7 +36,9 @@ function isUniqueViolation(error: unknown): boolean {
 
 /**
  * Signs the current version's hash. The message handed to the provider is the raw 32
- * bytes of that SHA-256, so the signature is over the document's content digest.
+ * bytes of that SHA-256, so the signature is over the document's content digest. The
+ * signature value is then time-stamped (RFC 3161 Appendix A), which is what later lets a
+ * signature be shown to predate a revocation of its certificate.
  */
 export async function signDocument(input: SignDocumentInput): Promise<SignDocumentResult> {
   requireCapability(input.actor, "document:sign");
@@ -88,6 +94,17 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
     privateKeyPem: privateKeyPemFor(certificate.keyPair),
   });
 
+  // A signature without a time-stamp is still a valid signature; it simply cannot be shown
+  // to predate a later revocation. So an unavailable TSA is recorded, not fatal.
+  let timestamp: IssuedTimestamp | null = null;
+  let timestampError: string | null = null;
+  try {
+    timestamp = await issueTimestampToken({ imprint: sha256(signatureBytes) });
+  } catch (error) {
+    timestampError = redactErrorForLog(error).summary;
+    console.error("Time-stamping failed", redactErrorForLog(error));
+  }
+
   // The signature row and the lifecycle transition commit together or not at all. The
   // unique constraint on documentVersionId settles a race between two signers.
   let committed: { signature: Signature; documentStatus: string };
@@ -100,6 +117,8 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
           algorithm,
           signatureBytes: new Uint8Array(signatureBytes),
           signedByUserId: input.actor.userId,
+          timestampToken: timestamp ? new Uint8Array(timestamp.token) : null,
+          timestampedAt: timestamp?.genTime ?? null,
         },
       });
       const advanced = await tx.document.update({
@@ -129,7 +148,32 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
     },
   });
 
-  return { ...committed, signedHash: version.hash };
+  await appendAuditEntry({
+    actorUserId: input.actor.userId,
+    action: timestamp ? "TIMESTAMP_ISSUED" : "TIMESTAMP_UNAVAILABLE",
+    targetType: "Signature",
+    targetId: committed.signature.id,
+    metadata: timestamp
+      ? {
+          genTime: timestamp.genTime.toISOString(),
+          accuracyMs: timestamp.accuracyMs,
+          tokenSerial: timestamp.serialNumber,
+          tokenBytes: timestamp.token.length,
+        }
+      : { error: timestampError },
+  });
+
+  return {
+    ...committed,
+    signedHash: version.hash,
+    timestamp: timestamp
+      ? {
+          genTime: timestamp.genTime,
+          accuracyMs: timestamp.accuracyMs,
+          serialNumber: timestamp.serialNumber,
+        }
+      : null,
+  };
 }
 
 export async function signaturesForDocument(documentId: string) {

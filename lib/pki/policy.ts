@@ -9,3 +9,9 @@ import type { Algorithm } from "@/lib/crypto/orchestrator";
  * attributable to the subject's key rather than swamped by a large issuer signature.
  */
 export const CA_ALGORITHM: Algorithm = "ECDSA_P256";
+
+/**
+ * The local Time-Stamp Authority's signing algorithm. ECDSA P-256 keeps tokens small, and
+ * the OpenSSL command-line tool can verify the resulting tokens independently.
+ */
+export const TSA_ALGORITHM: Algorithm = "ECDSA_P256";
