@@ -65,4 +65,21 @@ describe("system overview", () => {
     expect(overview.integrity.entriesAfterLatestCheckpoint).toBe(overview.integrity.auditEntries);
     expect(overview.recentActivity[0].seq).toBe((await prisma.auditLogEntry.findFirstOrThrow({ orderBy: { seq: "desc" } })).seq);
   });
+
+  // Walkthrough finding: the dashboard read stored statuses only, so a lapsed certificate still
+  // counted as active until someone opened the certificates page, which runs the expiry sweep.
+  it("counts a certificate whose validity has lapsed as expired, as the certificates page does", async () => {
+    const lapsed = await issueCertificate({ actor: signer, algorithm: CA_ALGORITHM });
+    await prisma.certificate.update({ where: { id: lapsed.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+    expect((await prisma.certificate.findUniqueOrThrow({ where: { id: lapsed.id } })).status).toBe("ACTIVE");
+
+    const overview = await systemOverview(viewer);
+    expect(overview.certificates.byStatus).toEqual(
+      expect.arrayContaining([
+        { key: "ACTIVE", count: 1 },
+        { key: "EXPIRED", count: 1 },
+      ]),
+    );
+    expect(overview.certificates.total).toBe(2);
+  });
 });

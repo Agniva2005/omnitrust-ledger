@@ -53,7 +53,7 @@ The seed contains:
 | # | Do this | You should see | Demonstrates |
 | --- | --- | --- | --- |
 | 9 | Open `audit-report-ed25519.txt` → **Verify** → **Run verification** | **AUTHENTIC**, an evidence chain of six green links (Certificate, Revocation, Time-stamp, Key, Signature, Content), a trusted time from the TSA, and ten passing steps | The ten-step workflow, with the certificate judged at the proven signing time |
-| 10 | Open `invoice-tampered.txt` → **Verify** → **Run verification** | **INVALID**, reason **HASH_MISMATCH**; the Content link is red and step 10 shows the signed and recomputed hashes side by side | The invoice was signed for 4,000 and altered on disk to 9,000 behind the application's back |
+| 10 | Open `invoice-tampered.txt` → **Verify** → **Run verification** | **INVALID**, reason **HASH_MISMATCH**; the Signature and Content links are red (the signature is checked against the recomputed hash, so it fails too) while Certificate, Revocation, Time-stamp and Key stay green, and step 10 shows the signed and recomputed hashes side by side | The invoice was signed for 4,000 and altered on disk to 9,000 behind the application's back |
 | 11 | Open `supply-agreement-rsa.txt` → in **Signatures** click **CMS (.p7s)** and **Document**, and from **Verify outside this app** download the **CA certificate** → run the `openssl cms -verify …` command shown there | `CMS Verification successful` from OpenSSL | The signature verifies without trusting this application |
 
 ## Part D — Certificates and revocation over time (steps 12–18)

@@ -831,3 +831,72 @@ The first version of `scripts/e2e.ts` hashed the development database with `crea
 | 15 — Documentation | this commit |
 
 Phases 0–4a and the ML-DSA addition (`663e26b`) precede this table; `git log` has them all. The final state of every feature is in [`docs/final-implementation-report.md`](final-implementation-report.md).
+
+---
+
+## Browser walkthrough of DEMO_SCRIPT.md (after Phase 15)
+
+The demo script was walked click by click in the in-app browser under `next dev`. It used an isolated installation (a separate database, storage, master key and Security Lab root), so the development database was untouched. The walkthrough found three defects, none of which the production-mode E2E run could see.
+
+### 1. Opening an ECDSA or Ed25519 document broke the whole dev server
+
+**Symptoms**
+- Step 8, signed in as signer@demo: the ECDSA sample's page stopped after the layout, at 12 KB instead of about 93 KB.
+- No error was logged. Afterwards the server answered "Internal Server Error" on every route until restarted.
+
+**Cause**, traced with file-based logging because the console itself had stopped working:
+1. Prisma returns small `Bytes` columns as `Uint8Array` views into Node's shared 8 KB Buffer pool.
+2. In development, React's server renderer records the resolved values of promises a server component awaits. Here that was the `signaturesForDocument` result, which carries `signatureBytes`, `cmsSignature` and `timestampToken`.
+3. React writes binary chunks larger than 2048 bytes by `controller.enqueue` into a `type: "bytes"` ReadableStream. That transfers the chunk's ArrayBuffer.
+4. The ECDSA sample's 2546-byte CMS blob sat in the pool. Transferring it detached the pool, so every later small `Buffer.from` in the process threw `ERR_BUFFER_OUT_OF_BOUNDS`: response writes, request logging and stdout.
+
+The RSA sample worked only because its 3250-byte CMS blob happened to have its own ArrayBuffer. Production builds do not emit this debug information, which is why `npm run e2e` (`next start`) passed.
+
+**Fix:** `lib/db.ts` extends the Prisma client so every result has its `Uint8Array` values copied into buffers they own (`detachBytesFromPool`). This covers every caller, not only the document page.
+
+**Test:** `tests/db/pooled-bytes.test.ts`.
+- Reproduces the detachment in a child process, and shows that a copy can be transferred safely.
+- Checks the helper on nested results.
+- Checks that the Prisma client returns owned buffers.
+
+**Evidence:** after the fix, the ECDSA, Ed25519, RSA and uploaded ML-DSA pages all render in full, repeatedly, with request logging intact.
+
+### 2. Signing out left the user on the dashboard
+
+`LogoutButton` called `router.replace("/login")` followed by `router.refresh()`. The session cookie was cleared (a reload redirected to `/login`), but the refresh re-requested the page being left, so the signed-out user stayed on it. It now performs a full navigation with `window.location.replace("/login")`. That also discards the client router cache of authenticated pages. This was checked in the browser: after the click, the location is `/login` and no sign-out control remains.
+
+### 3. The dashboard counted a lapsed certificate as active
+
+The dashboard read stored certificate statuses. The seeded expired certificate therefore showed as active until someone opened the certificates page, which runs the ACTIVE → EXPIRED sweep. `systemOverview` now runs the same `markExpiredCertificates` sweep. Validation never depended on the stored status. `tests/dashboard/overview.test.ts` has a new case for this.
+
+### 4. An honest signature intermittently verified as UNVERIFIABLE
+
+**Symptom.** Found while re-running the suites after the fixes above. About one combined run in four, a freshly signed document verified as UNVERIFIABLE instead of VALID. It surfaced once in `tests/api/routes.test.ts` and once in `tests/verification/algorithm-confusion.test.ts`, each time on the first verification after the test file reset its database. (A first note here attributed the routes failure to a null `trustedTime`. Vitest's caret marked the preceding assertion; it was the outcome itself.)
+
+**Cause.** A race between two revocation checks inside one verification:
+- `verifyDocument` fixes its evaluation instant `now` at the start.
+- Signing checks revocation from the certificate row, so a fresh installation has no CRL until verification needs one.
+- Step 4 verified the time-stamp and judged the Time-Stamp Authority's revocation at the *clock*, not at `now`. That call issued the first CRL, with `thisUpdate` at the current second.
+- Step 6 judges the signing certificate at `now`. When a second boundary fell between `now` and step 4, it found a CRL dated after its own instant and correctly refused it as not current. The result was REVOCATION_STATUS_UNAVAILABLE, so the verdict was UNVERIFIABLE.
+
+**Fix.** `verifyTimestampToken` takes the evaluation instant, and `verifyDocument` passes `now`. Every revocation decision in one verification is now made at one instant, and a CRL issued on demand is dated no later than it.
+
+**Test.** `tests/verification/crl-instant.test.ts` makes the race deterministic: sign, wait two seconds, then verify at an instant one second before the clock. Before the fix it failed every time, with step 6 "the certificate revocation list is not current". After the fix it passes.
+
+**Evidence.**
+- A diagnostic service-level loop of 120 sign-and-verify cycles never reproduced it: only its first cycle created a CRL.
+- Four combined runs reproduced it once.
+
+### Also changed
+
+- **`scripts/ci.ts`:** the integration suite now includes `tests/db`. The CI plan test failed `npm run ci` because the new test file belonged to no suite, which is exactly the guard's purpose.
+- **`tests/api/routes.test.ts`:** its verification assertion now reports the verdict's evidence (outcome, reason, trust summary and non-passing steps) on failure, instead of a bare outcome mismatch.
+- **`DEMO_SCRIPT.md` step 10:** now says that both the Signature and Content links are red for the tampered invoice. The signature is checked against the recomputed hash, so it fails too. That was the walkthrough's only wording deviation. Steps 8–22 otherwise matched as scripted:
+  - the signature sizes (384, 71, 64 and 3309 bytes);
+  - OpenSSL `CMS Verification successful`;
+  - SIGNED_BEFORE_REVOCATION versus COMPROMISE_TIME_UNKNOWN;
+  - CRL #3, independently verified with `openssl crl -CAfile`;
+  - LOG VERIFIED with one agreeing checkpoint;
+  - a 7-leaf anchor batch;
+  - the Security Lab rewrite held, with table fingerprints of every pre-existing row identical before and after;
+  - benchmarks at n = 200.

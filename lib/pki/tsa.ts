@@ -330,6 +330,12 @@ function accuracyToMs(accuracy: Accuracy | undefined): number {
 export async function verifyTimestampToken(
   tokenDer: Uint8Array,
   expectedImprint: Uint8Array,
+  /**
+   * The instant the authority's revocation status is judged at. A caller that evaluates other
+   * revocation at a fixed instant must pass the same one: judging this at the clock can issue a
+   * CRL dated after that instant, which the caller's own check then rejects as not current.
+   */
+  at: Date = new Date(),
 ): Promise<TimestampVerification> {
   const checks: TimestampCheck[] = [];
   const result = {
@@ -479,7 +485,7 @@ export async function verifyTimestampToken(
 
   // --- The authority's revocation status ---
   try {
-    const status = await revocationStatus(authority!.serialNumber);
+    const status = await revocationStatus(authority!.serialNumber, at);
     const decision = evaluateRevocation(status.revocation, {
       time: tstInfo.genTime,
       accuracyMs: result.accuracyMs,

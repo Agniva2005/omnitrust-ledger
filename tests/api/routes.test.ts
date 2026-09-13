@@ -206,7 +206,15 @@ describe("signing and verification", () => {
     expect((await read(await verify.POST(json("/x", "POST"), params("nope")))).status).toBe(404);
     const verified = await read(await verify.POST(json("/x", "POST"), params(signedDocument.id)));
     expect(verified.status).toBe(200);
-    expect(verified.body.result).toMatchObject({ outcome: "VALID" });
+    // This assertion failed once, in a combined run, and did not reproduce; report the verdict's
+    // evidence so a recurrence can be diagnosed rather than showing only an outcome mismatch.
+    const evidence = JSON.stringify({
+      outcome: verified.body.result.outcome,
+      reasons: verified.body.result.reasons ?? verified.body.result.reason,
+      trust: verified.body.result.trust,
+      notPassed: verified.body.result.steps.filter((step: { status: string }) => step.status !== "PASS"),
+    });
+    expect(verified.body.result.outcome, evidence).toBe("VALID");
     expect(verified.body.result.steps.length).toBeGreaterThanOrEqual(10);
     expect(verified.body.result.trust.trustedTime).not.toBeNull();
   }, 30_000);

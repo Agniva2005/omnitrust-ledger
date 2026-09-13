@@ -307,9 +307,11 @@ export async function verifyDocument(
         true,
       );
     } else {
+      // Judged at `now`, like the certificate's own revocation in step 6: see verifyTimestampToken.
       const timestamp = await verifyTimestampToken(
         signature.timestampToken,
         sha256(signature.signatureBytes),
+        now,
       );
       trust.timestampAuthority = timestamp.authority;
       if (timestamp.status === "VALID" && timestamp.genTime) {

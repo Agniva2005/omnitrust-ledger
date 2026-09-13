@@ -6,7 +6,7 @@ import { requireCapability, type Actor } from "@/lib/auth/rbac";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 import { prisma } from "@/lib/db";
 import { getRootCa } from "@/lib/pki/ca";
-import { parseCertificate } from "@/lib/pki/certificates";
+import { markExpiredCertificates, parseCertificate } from "@/lib/pki/certificates";
 
 function counted<T extends string>(rows: { key: T; count: number }[]) {
   return rows.sort((a, b) => b.count - a.count);
@@ -15,6 +15,9 @@ function counted<T extends string>(rows: { key: T; count: number }[]) {
 export async function systemOverview(actor: Actor) {
   requireCapability(actor, "document:read");
   const now = new Date();
+  // The same Figure 6 ACTIVE -> EXPIRED sweep the certificates page runs, so the dashboard's
+  // status counts agree with it instead of reporting a lapsed certificate as active.
+  await markExpiredCertificates(now);
 
   const [documentGroups, signatureGroups, certificateGroups, signatureTotal, timestampedSignatures, cmsSignatures] = await Promise.all([
     prisma.document.groupBy({ by: ["status"], _count: { _all: true } }),
