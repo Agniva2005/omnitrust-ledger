@@ -676,3 +676,36 @@ Of the 22 route handlers under `app/api`, only 8 were imported by any test. The 
   - `--only crypto-boundary` runs that step alone, marks the rest "not selected", and exits 0;
   - a genuine failure, produced without changing any code by running from a copy of `node` that cannot locate npm, reports `FAIL dependencies — npm's JavaScript entry point was not found` and `CI FAILED (1 step)`, and exits 1.
 - The full CI run includes type-check, lint, the boundary check and the build.
+
+---
+
+## Phase 13 — Security audit
+
+The audit is recorded in **[`docs/audit/02-security-audit.md`](audit/02-security-audit.md)**: scope, findings with severity and status, the controls verified with the test that backs each, and the accepted limitations.
+
+### Findings
+
+| ID | Severity | Finding | Status |
+| --- | --- | --- | --- |
+| S1 | High (policy) | `POST /api/certificates` returned the encrypted private key | Fixed in Phase 11 |
+| S2 | Medium | Unauthenticated `GET` routes changed state (TSA creation, CRL issuance) | **Fixed in this phase** |
+| S3 | Medium | First time-stamp could predate its authority certificate | Fixed in Phase 10 |
+| S4 | Low | Not-yet-valid certificate reported as expired | Fixed in Phase 10 |
+| S5 | Low | README limitations understate the implemented controls | Open, for Phase 15 |
+
+Ten accepted limitations (L1–L10) are stated in the audit: stateless sessions, in-memory throttling, CSP `'unsafe-inline'`, a production-only `secure` cookie, a local master-key file, role-based rather than ownership-based read access, a framework-default body limit, a public development chain account, no offline dependency-advisory scan, and demo-grade trust anchors.
+
+### Fixed in this phase: state changes on unauthenticated GET
+
+- `GET /api/pki/tsa` created the Time-Stamp Authority on first request: a key generation, a CA signature and database writes. `GET /api/pki/crl` made the CA sign a new list whenever the stored one had lapsed. GET is exempt from the cross-site check and needs no session, so anyone could trigger both.
+- Both routes are now read-only. They use the new `activeTimestampAuthority()` and `latestCrl()`, which never create or sign anything. They return 404 when nothing exists yet. A lapsed list is served as stored, with its next-update time also in `X-CRL-Next-Update`, so a consumer can see it is stale.
+- Issuance remains with revocation and authenticated verification, which already call `currentCrl()` and `ensureTimestampAuthority()`.
+- `tests/pki/public-routes-readonly.test.ts` checks that no row and no `TSA_CREATED` or `CRL_ISSUED` audit entry is created on a 404, and that a lapsed list is served byte-for-byte without a new one being issued.
+- The existing TSA and CRL route tests had relied on the side effect and failed after the change. They now create the authority or issue the list explicitly first.
+
+### Verification
+
+- `npm test`: **695 passed, 1 skipped** across 52 files (691 after Phase 12).
+- All 18 test files cited in the audit document were checked to exist.
+- The S2 fix is verified through the real route handlers in tests; it was not re-checked over HTTP against `npm run dev`.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.

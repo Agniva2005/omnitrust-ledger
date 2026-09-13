@@ -301,6 +301,8 @@ describe("independent verification with OpenSSL", () => {
 
 describe("the RFC 3161 HTTP endpoint", () => {
   it("publishes the authority's certificate without authentication", async () => {
+    // The route is read-only (tests/pki/public-routes-readonly.test.ts), so the authority must exist first.
+    await ensureTimestampAuthority();
     const { GET } = await import("@/app/api/pki/tsa/route");
     const response = await GET();
     expect(response.status).toBe(200);

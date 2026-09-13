@@ -130,6 +130,15 @@ export async function issueCrl(
   return stored;
 }
 
+/**
+ * The newest stored CRL, lapsed or not, without issuing anything. For unauthenticated
+ * publication: a GET must not make the CA sign. A consumer sees a lapsed list's nextUpdate and
+ * treats it as stale, which is the correct outcome.
+ */
+export async function latestCrl(): Promise<RevocationList | null> {
+  return prisma.revocationList.findFirst({ orderBy: { crlNumber: "desc" } });
+}
+
 /** The newest CRL, with a fresh one issued first if none exists or the newest has lapsed. */
 export async function currentCrl(at: Date = new Date()): Promise<RevocationList> {
   const latest = await prisma.revocationList.findFirst({ orderBy: { crlNumber: "desc" } });

@@ -202,6 +202,8 @@ describe("export", () => {
   });
 
   it("serves the current CRL as DER and the CA certificate as PEM, without authentication", async () => {
+    // The route only publishes what the CA has issued (tests/pki/public-routes-readonly.test.ts).
+    await issueCrl();
     const crlResponse = await getCrl(new Request("http://localhost/api/pki/crl"));
     expect(crlResponse.status).toBe(200);
     expect(crlResponse.headers.get("Content-Type")).toBe("application/pkix-crl");

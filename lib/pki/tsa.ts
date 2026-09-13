@@ -115,6 +115,11 @@ function requestedPolicy(requestDer: Uint8Array): string | null {
   return candidate?.tag === DER_OBJECT_IDENTIFIER ? decodeObjectIdentifierContent(candidate.content) : null;
 }
 
+/** The active Time-Stamp Authority if one exists, without creating it. */
+export async function activeTimestampAuthority(): Promise<TimestampAuthority | null> {
+  return prisma.timestampAuthority.findFirst({ where: { status: "ACTIVE" }, orderBy: { createdAt: "desc" } });
+}
+
 /** The active Time-Stamp Authority, created with its certificate on first use. */
 export async function ensureTimestampAuthority(): Promise<TimestampAuthority> {
   const existing = await prisma.timestampAuthority.findFirst({
