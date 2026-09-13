@@ -151,12 +151,14 @@ describe("revocation", () => {
     const revoked = await revokeCertificate({
       actor: admin,
       certificateId: certificate.id,
-      reason: "Key compromise (demo)",
+      reason: "keyCompromise",
+      comment: "Key compromise (demo)",
     });
 
     expect(revoked.status).toBe("REVOKED");
     expect(revoked.revokedAt).toBeInstanceOf(Date);
-    expect(revoked.revocationReason).toBe("Key compromise (demo)");
+    expect(revoked.revocationReason).toBe("keyCompromise");
+    expect(revoked.revocationComment).toBe("Key compromise (demo)");
 
     const keyPair = await prisma.keyPair.findUniqueOrThrow({ where: { id: certificate.keyPairId } });
     expect(keyPair.status).toBe("REVOKED");

@@ -1,6 +1,7 @@
 // PEM framing helpers. Serialisation only: no cryptography happens here.
 
-export type PemLabel = "PUBLIC KEY" | "PRIVATE KEY" | "CERTIFICATE";
+/** RFC 7468 labels. A CRL is "X509 CRL"; OpenSSL refuses the non-standard "CRL". */
+export type PemLabel = "PUBLIC KEY" | "PRIVATE KEY" | "CERTIFICATE" | "X509 CRL";
 
 /** The DER bytes inside a PEM block (armour lines and whitespace removed). */
 export function pemBody(pem: string): Buffer {

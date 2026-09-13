@@ -59,7 +59,8 @@ beforeAll(async () => {
   await revokeCertificate({
     actor: admin,
     certificateId: certificate.id,
-    reason: "Demo revocation",
+    reason: "superseded",
+    comment: "Demo revocation",
   });
   await verifyDocument(admin, good.id);
 

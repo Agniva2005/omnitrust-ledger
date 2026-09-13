@@ -159,3 +159,42 @@ The OpenSSL command-line tool supports ML-DSA only from version 3.5; the CLI on 
 - `npm run db:seed` on the existing development database issued an ML-DSA-65 certificate and signed `service-contract-ml-dsa-65.txt` without any fixture change; audit chain intact (38 entries).
 - Over real HTTP against `npm run dev`: the seeded ML-DSA document verifies `VALID` (3309-byte signature; step 5 confirms an ML-DSA-65 key matching both records); `POST /api/certificates` with `ML_DSA_65` returns 201 with an `ACTIVE` certificate; an unregistered `ML_DSA_87` is rejected with 400, the allowed list in the error coming from the registry.
 - Browser: the certificates page offers "ML-DSA-65 (post-quantum)" in the issue form and lists both ML-DSA certificates as valid; the home page shows it with its security class and signature size. The dev server logged no errors.
+
+---
+
+## Phase 4a — RFC 5280 revocation reasons and signed CRLs
+
+Phase 4 is split into three commits: 4a (revocation reasons and CRLs, this entry), 4b (a local RFC 3161 Time-Stamp Authority and signature time-stamping) and 4c (timestamp-aware verification). Verification still reads revocation from the certificate record until 4c.
+
+### Research before implementation
+
+- **RFC 5280** §5.3.1 (CRLReason codes) and §5.3.2 (invalidity date: "the date on which it is known or suspected that the private key was compromised or that the certificate otherwise became invalid").
+- **ETSI EN 319 102-1** past signature validation: a revoked signing certificate with no proof of existence (POE) of the signature before the revocation is *indeterminate* (`REVOKED_NO_POE`), not failed; a signature time-stamp earlier than the revocation lets past validation succeed. **Limitation of this research:** the ETSI PDFs returned HTTP 403, and text extraction from the copies obtained was not possible in this environment, so the rule is taken from ETSI's published summaries and plugtest material rather than quoted clause text. Anything stricter than that rule is labelled below as OmniTrust policy.
+- **RFC 3161** §2.4.2 and Appendix A, **RFC 5816** and **RFC 5035** for the time-stamp work in 4b, probed end to end before any code: a TimeStampResp built with the `@peculiar/asn1-*` classes, carrying SigningCertificateV2, passes `openssl ts -verify` (both response and bare token) and fails with "message imprint mismatch" when the time-stamped data changes.
+
+### What changed
+
+- **`lib/pki/revocation.ts`**: the RFC 5280 reasons this CA issues (not `certificateHold`/`removeFromCRL`), and `evaluateRevocation()`, the timestamp-aware policy `omnitrust-timestamp-aware-revocation/1` that 4c will apply:
+  - not revoked → pass;
+  - revoked, no proof of existence → **indeterminate** (per ETSI `REVOKED_NO_POE`);
+  - non-compromise reasons → pass if the signature is proven to predate the revocation (or an earlier recorded invalidity date), otherwise invalid;
+  - compromise reasons → pass only if proven to predate the recorded invalidity date; **with no invalidity date the compromise time is unknown and the signature is invalid** (OmniTrust policy, not an ETSI rule);
+  - a proof counts as "before" only when its time **plus the time-stamp's stated accuracy** is strictly earlier; uncertainty never favours the signature.
+- **Revocation takes structured input**: reason code, optional invalidity date (refused if later than the revocation or before the certificate's validity), optional comment. API validation and a reason picker in the UI, with a warning when a compromise is recorded without an invalidity date.
+- **`lib/pki/crl.ts`**: every revocation makes the CA issue a new, numbered (`cRLNumber`), signed CRL containing reason codes and invalidity dates, stored as signed. `authenticateCrl()` accepts a list only if the local CA signed it and it is current; a forged, altered, lapsed or malformed list makes status **unavailable**, never "not revoked". `unspecified` is encoded by omitting the reason extension, as RFC 5280 asks.
+- **Public exports** `GET /api/pki/crl` (DER, or `?format=pem`) and `GET /api/pki/ca`, so an external tool can check revocation without trusting the app.
+- **Schema and migration** (`20260913093000_add_crl_timestamping_revocation_reasons`): reason code, invalidity date and comment on certificates; `RevocationList`; `TimestampAuthority` and signature time-stamp columns for 4b. A data step converts free-text reasons recorded before the migration into a comment plus `unspecified`.
+
+### Bugs found and fixed during this phase
+
+1. **CRLs used a PEM label OpenSSL refuses.** `@peculiar/x509` armours CRLs as `BEGIN CRL`; RFC 7468 and OpenSSL require `BEGIN X509 CRL`. OpenSSL reported "Could not find CRL". PEM export now uses the standard label.
+2. **Revoked certificates appeared unrevoked to standard CRL consumers for about half of all serial numbers.** Found only over real HTTP, by reading a downloaded CRL with OpenSSL: the entry's serial printed as `-3D9387…` for a certificate whose serial is `C26C78…`. The certificate generator encodes a serial whose first byte has its top bit set as a positive INTEGER with a leading zero byte; the CRL generator encoded the same hex verbatim, producing a negative INTEGER that no longer matched. OpenSSL `verify -crl_check` would therefore accept such a revoked certificate. OmniTrust's own reader compared normalised hex text, which hid the mismatch, and the first OpenSSL test passed only because its random serial happened to have the top bit clear. Entries are now always positive INTEGERs byte-identical to the certificate's. The regression tests force a top-bit serial rather than hoping for one, compare the CRL entry's INTEGER bytes with the certificate's, and require OpenSSL to report that certificate revoked. The bug was caught before commit; the development database's affected CRL was superseded by a fresh one, which OpenSSL lists with the correct positive serial.
+3. **The migration's data step had never touched data**: the suite only migrates empty databases, and the development database held no revoked certificates. `tests/prisma/migration-data.test.ts` runs that step's SQL, read from the migration file, against pre-migration-shaped rows, and checks its list of reason codes cannot drift from the code's.
+
+### Verification
+
+- `npm test`: **496 passed, 1 skipped** across 35 files (440 after Phase 3). The revocation policy truth table covers every reason with no proof, proof before, proof after, and a proof whose accuracy window straddles the event.
+- OpenSSL CLI 3.2.4, in automated tests: `openssl crl -CAfile` reports `verify OK`, `Key Compromise`, `Invalidity Date` and `CRL Number`; `openssl verify -crl_check` rejects a revoked certificate (including one with a top-bit serial) with "certificate revoked" and accepts an active one.
+- Over real HTTP against `npm run dev`: both downloads are served without a session with the right content types; OpenSSL verifies the downloaded CRL; the revoke endpoint rejects an unknown reason and a future invalidity date with 400; revoking with `keyCompromise` and an invalidity date issued a new CRL that OpenSSL reads with both fields. (An ML-DSA certificate cannot be checked with `openssl verify` on the 3.2.4 CLI, which cannot parse ML-DSA keys; the automated OpenSSL checks use ECDSA certificates.)
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+- Browser, signed in as `admin@demo`: each active certificate's Revoke button opens a form with the RFC 5280 reason picker and its description, an invalidity-date field and a comment; the previously revoked certificate shows `REVOKED` / `CERTIFICATE_REVOKED`; no console errors. (The form was not confirmed, to leave the seeded demo certificates intact; revocation itself was exercised over HTTP above.)

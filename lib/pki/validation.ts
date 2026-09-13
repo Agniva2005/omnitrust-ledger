@@ -144,9 +144,16 @@ export async function validateCertificate(
     step: "Not revoked",
     passed: !revoked,
     detail: revoked
-      ? `revoked ${certificate.revokedAt?.toISOString() ?? "at an unrecorded time"}: ${
-          certificate.revocationReason ?? "Unspecified"
-        }`
+      ? [
+          `revoked ${certificate.revokedAt?.toISOString() ?? "at an unrecorded time"}`,
+          `reason ${certificate.revocationReason ?? "unspecified"}`,
+          certificate.invalidityDate
+            ? `invalid from ${certificate.invalidityDate.toISOString()}`
+            : null,
+          certificate.revocationComment,
+        ]
+          .filter(Boolean)
+          .join(", ")
       : undefined,
   });
   if (revoked && !reason) reason = "CERTIFICATE_REVOKED";

@@ -2,8 +2,9 @@
 //
 // Status / role / algorithm columns are String, not enum: Prisma does not support
 // enums on SQLite. Allowed values are enforced as TypeScript unions in the module
-// that owns each concept (lib/auth/rbac.ts, lib/crypto/types.ts,
-// lib/documents/lifecycle.ts, lib/pki/keys.ts) and validated before any write.
+// that owns each concept (lib/auth/rbac.ts, lib/crypto/registry.ts,
+// lib/documents/lifecycle.ts, lib/pki/keys.ts, lib/pki/revocation.ts) and validated
+// before any write.
 
 generator client {
   provider = "prisma-client-js"
@@ -16,11 +17,11 @@ datasource db {
 
 /// role: "ADMIN" | "SIGNER" | "VERIFIER" | "VIEWER" (see lib/auth/rbac.ts)
 model User {
-  id           String        @id @default(cuid())
-  email        String        @unique
+  id           String          @id @default(cuid())
+  email        String          @unique
   passwordHash String
   role         String
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime        @default(now())
   documents    Document[]
   keyPairs     KeyPair[]
   certificates Certificate[]
@@ -51,13 +52,15 @@ model AuditLogEntry {
 /// the CA's signing algorithm must be resolved through the orchestrator rather than
 /// hard-coded anywhere, per Section 2 rule 2.
 model CertificateAuthority {
-  id                  String        @id @default(cuid())
-  name                String
-  algorithm           String
-  certPem             String
-  encryptedPrivateKey String
-  createdAt           DateTime      @default(now())
-  issued              Certificate[]
+  id                   String               @id @default(cuid())
+  name                 String
+  algorithm            String
+  certPem              String
+  encryptedPrivateKey  String
+  createdAt            DateTime             @default(now())
+  issued               Certificate[]
+  revocationLists      RevocationList[]
+  timestampAuthorities TimestampAuthority[]
 }
 
 /// status: key lifecycle state, Figure 7 / NIST SP 800-57 (see lib/pki/keys.ts)
@@ -77,27 +80,66 @@ model KeyPair {
   @@index([ownerUserId])
 }
 
-/// status: certificate lifecycle state, Figure 6 (see lib/pki/keys.ts)
+/// status: certificate lifecycle state, Figure 6 (see lib/pki/keys.ts).
+/// revocationReason: an RFC 5280 section 5.3.1 reason code name (see lib/pki/revocation.ts).
+/// invalidityDate: RFC 5280 section 5.3.2, when the key is known or suspected to have been
+/// compromised or the certificate otherwise became invalid.
 model Certificate {
-  id               String               @id @default(cuid())
-  keyPairId        String
-  keyPair          KeyPair              @relation(fields: [keyPairId], references: [id])
-  subjectUserId    String
-  subject          User                 @relation(fields: [subjectUserId], references: [id])
-  issuerCaId       String
-  issuerCa         CertificateAuthority @relation(fields: [issuerCaId], references: [id])
-  serialNumber     String               @unique
-  algorithm        String
-  certPem          String
-  issuedAt         DateTime             @default(now())
-  expiresAt        DateTime
-  status           String
-  revokedAt        DateTime?
-  revocationReason String?
-  signatures       Signature[]
+  id                String               @id @default(cuid())
+  keyPairId         String
+  keyPair           KeyPair              @relation(fields: [keyPairId], references: [id])
+  subjectUserId     String
+  subject           User                 @relation(fields: [subjectUserId], references: [id])
+  issuerCaId        String
+  issuerCa          CertificateAuthority @relation(fields: [issuerCaId], references: [id])
+  serialNumber      String               @unique
+  algorithm         String
+  certPem           String
+  issuedAt          DateTime             @default(now())
+  expiresAt         DateTime
+  status            String
+  revokedAt         DateTime?
+  revocationReason  String?
+  invalidityDate    DateTime?
+  revocationComment String?
+  signatures        Signature[]
 
   @@index([subjectUserId])
   @@index([status])
+}
+
+/// A certificate revocation list issued and signed by the local CA (RFC 5280 section 5).
+/// Stored exactly as signed. The newest list is the authoritative revocation evidence
+/// used during verification, after its signature and freshness have been checked.
+model RevocationList {
+  id         String               @id @default(cuid())
+  issuerCaId String
+  issuerCa   CertificateAuthority @relation(fields: [issuerCaId], references: [id])
+  crlNumber  Int                  @unique
+  thisUpdate DateTime
+  nextUpdate DateTime
+  der        Bytes
+  createdAt  DateTime             @default(now())
+}
+
+/// The local RFC 3161 Time-Stamp Authority. Its certificate is issued by the local CA with
+/// a critical id-kp-timeStamping extended key usage, and can be revoked like any other.
+model TimestampAuthority {
+  id                  String               @id @default(cuid())
+  issuerCaId          String
+  issuerCa            CertificateAuthority @relation(fields: [issuerCaId], references: [id])
+  name                String
+  algorithm           String
+  policyOid           String
+  serialNumber        String               @unique
+  certPem             String
+  encryptedPrivateKey String
+  expiresAt           DateTime
+  status              String
+  revokedAt           DateTime?
+  revocationReason    String?
+  invalidityDate      DateTime?
+  createdAt           DateTime             @default(now())
 }
 
 /// status: document lifecycle state, Figure 4 (see lib/documents/lifecycle.ts)
@@ -133,6 +175,10 @@ model DocumentVersion {
 
 /// One signature per document version: the version's `hash` is the payload that was
 /// signed (see the decisions log in PROGRESS.md).
+///
+/// timestampToken: an RFC 3161 TimeStampToken over SHA-256 of signatureBytes (RFC 3161
+/// Appendix A). It is the proof that the signature existed at its genTime; timestampedAt
+/// copies that time for listings only and is never trusted by verification.
 model Signature {
   id                String          @id @default(cuid())
   documentVersionId String
@@ -144,6 +190,8 @@ model Signature {
   signedAt          DateTime        @default(now())
   signedByUserId    String
   signedBy          User            @relation(fields: [signedByUserId], references: [id])
+  timestampToken    Bytes?
+  timestampedAt     DateTime?
 
   @@unique([documentVersionId])
   @@index([certificateId])

@@ -9,6 +9,8 @@ export async function resetDatabase() {
   await prisma.signature.deleteMany();
   await prisma.documentVersion.deleteMany();
   await prisma.document.deleteMany();
+  await prisma.revocationList.deleteMany();
+  await prisma.timestampAuthority.deleteMany();
   await prisma.certificate.deleteMany();
   await prisma.keyPair.deleteMany();
   await prisma.certificateAuthority.deleteMany();

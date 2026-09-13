@@ -9,12 +9,14 @@ import { assertAlgorithm, orchestrator, type Algorithm } from "@/lib/crypto/orch
 import { decryptString, encryptString } from "@/lib/crypto/symmetric";
 import { prisma } from "@/lib/db";
 import { caCertificate, caSigningAlgorithm, caSigningKey, getRootCa } from "@/lib/pki/ca";
+import { issueCrl } from "@/lib/pki/crl";
 import {
   assertCertificateState,
   assertCertificateTransition,
   assertKeyState,
   assertKeyTransition,
 } from "@/lib/pki/keys";
+import { assertRevocationReason, type RevocationReason } from "@/lib/pki/revocation";
 
 export const DEFAULT_VALIDITY_DAYS = 365;
 
@@ -154,22 +156,46 @@ export async function issueCertificate(
 export type RevokeInput = {
   actor: Actor;
   certificateId: string;
-  reason?: string;
+  /** RFC 5280 section 5.3.1 reason. Defaults to unspecified. */
+  reason?: RevocationReason;
+  /**
+   * RFC 5280 section 5.3.2: when the key is known or suspected to have been compromised, or
+   * the certificate otherwise became invalid. May precede the revocation itself.
+   */
+  invalidityDate?: Date;
+  comment?: string;
 };
 
-/** Section 6: only an ADMIN can revoke. Also revokes the underlying key pair. */
+/**
+ * Section 6: only an ADMIN can revoke. Also revokes the underlying key pair, and has the CA
+ * issue a new CRL so the revocation exists as signed evidence.
+ */
 export async function revokeCertificate({
   actor,
   certificateId,
-  reason,
+  reason = "unspecified",
+  invalidityDate,
+  comment,
 }: RevokeInput): Promise<Certificate> {
   requireCapability(actor, "certificate:revoke");
+  assertRevocationReason(reason);
 
   const certificate = await prisma.certificate.findUnique({
     where: { id: certificateId },
     include: { keyPair: true },
   });
   if (!certificate) throw new NotFoundError("Certificate not found");
+
+  const revokedAt = new Date();
+  if (invalidityDate) {
+    if (Number.isNaN(invalidityDate.getTime())) throw new BadRequestError("The invalidity date is not a valid date");
+    if (invalidityDate > revokedAt) {
+      throw new BadRequestError("The invalidity date cannot be later than the revocation itself");
+    }
+    if (invalidityDate < certificate.issuedAt) {
+      throw new BadRequestError("The invalidity date cannot precede the certificate's validity period");
+    }
+  }
 
   const nextStatus = assertCertificateTransition(
     assertCertificateState(certificate.status),
@@ -184,15 +210,19 @@ export async function revokeCertificate({
       where: { id: certificateId },
       data: {
         status: nextStatus,
-        revokedAt: new Date(),
-        revocationReason: reason?.trim() || "Unspecified",
+        revokedAt,
+        revocationReason: reason,
+        invalidityDate: invalidityDate ?? null,
+        revocationComment: comment?.trim() || null,
       },
     }),
     prisma.keyPair.update({
       where: { id: certificate.keyPairId },
-      data: { status: nextKeyState, revokedAt: new Date() },
+      data: { status: nextKeyState, revokedAt },
     }),
   ]);
+
+  const crl = await issueCrl({ actorUserId: actor.userId });
 
   await appendAuditEntry({
     actorUserId: actor.userId,
@@ -202,7 +232,10 @@ export async function revokeCertificate({
     metadata: {
       serialNumber: certificate.serialNumber,
       algorithm: certificate.algorithm,
-      reason: updated.revocationReason,
+      reason,
+      invalidityDate: invalidityDate?.toISOString() ?? null,
+      comment: updated.revocationComment,
+      crlNumber: crl.crlNumber,
     },
   });
 

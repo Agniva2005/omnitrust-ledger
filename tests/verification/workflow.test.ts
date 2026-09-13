@@ -220,7 +220,8 @@ describe("Phase 6 case 3: a revoked certificate", () => {
     await revokeCertificate({
       actor: admin,
       certificateId: certificate.id,
-      reason: "Key compromise (test)",
+      reason: "keyCompromise",
+      comment: "Key compromise (test)",
     });
 
     const result = await verifyDocument(verifier, document.id);
@@ -229,6 +230,7 @@ describe("Phase 6 case 3: a revoked certificate", () => {
 
     const revocationStep = result.steps.find((step) => step.step.includes("Not revoked"));
     expect(revocationStep?.passed).toBe(false);
+    expect(revocationStep?.detail).toContain("keyCompromise");
     expect(revocationStep?.detail).toContain("Key compromise (test)");
   });
 });
