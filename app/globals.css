@@ -2,30 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens. Colours are HSL triplets consumed through tailwind.config.ts.
+ *
+ * Semantic language, used consistently across the interface:
+ *   success  a check passed / VALID            destructive  a check failed / INVALID or ERROR
+ *   warning  evidence unavailable / UNVERIFIABLE  info      neutral, informational state
+ *   classical (slate), pq (teal, post-quantum), hybrid (violet, PQ/T composite) security classes
+ */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    --background: 220 23% 98%;
+    --foreground: 224 30% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 224 30% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
-    --success: 142 71% 35%;
-    --success-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 222 47% 11%;
-    --radius: 0.5rem;
+    --popover-foreground: 224 30% 11%;
+    --primary: 243 75% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 17% 94%;
+    --secondary-foreground: 224 28% 16%;
+    --muted: 220 17% 95%;
+    --muted-foreground: 220 9% 42%;
+    --accent: 243 85% 96.5%;
+    --accent-foreground: 243 62% 42%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 62% 34%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 92% 42%;
+    --warning-foreground: 0 0% 100%;
+    --info: 204 88% 40%;
+    --info-foreground: 0 0% 100%;
+    --classical: 218 14% 42%;
+    --pq: 173 72% 30%;
+    --hybrid: 268 68% 52%;
+    --border: 220 14% 89%;
+    --input: 220 14% 86%;
+    --ring: 243 75% 58%;
+    --sidebar: 220 22% 96.5%;
+    --sidebar-foreground: 224 20% 26%;
+    --sidebar-border: 220 14% 89%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 225 25% 6.5%;
+    --foreground: 220 20% 93%;
+    --card: 225 22% 9.5%;
+    --card-foreground: 220 20% 93%;
+    --popover: 225 22% 10.5%;
+    --popover-foreground: 220 20% 93%;
+    --primary: 243 92% 71%;
+    --primary-foreground: 228 35% 9%;
+    --secondary: 225 17% 14%;
+    --secondary-foreground: 220 18% 88%;
+    --muted: 225 17% 13%;
+    --muted-foreground: 220 10% 63%;
+    --accent: 243 38% 17%;
+    --accent-foreground: 243 95% 84%;
+    --destructive: 0 74% 62%;
+    --destructive-foreground: 228 35% 9%;
+    --success: 152 56% 50%;
+    --success-foreground: 228 35% 9%;
+    --warning: 38 94% 60%;
+    --warning-foreground: 228 35% 9%;
+    --info: 204 90% 64%;
+    --info-foreground: 228 35% 9%;
+    --classical: 218 14% 66%;
+    --pq: 172 62% 52%;
+    --hybrid: 268 88% 76%;
+    --border: 225 15% 17%;
+    --input: 225 15% 21%;
+    --ring: 243 92% 71%;
+    --sidebar: 225 26% 8%;
+    --sidebar-foreground: 220 14% 78%;
+    --sidebar-border: 225 15% 15%;
   }
 }
 
@@ -33,7 +85,71 @@
   * {
     @apply border-border;
   }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background font-sans text-foreground;
+    font-feature-settings: "cv11", "ss01", "tnum" 0;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.22);
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+}
+
+/* Collapsed sidebar, driven by an attribute on <html> so the width is right before hydration. */
+@layer components {
+  html[data-sidebar="collapsed"] .app-sidebar {
+    width: 4.25rem;
+  }
+
+  html[data-sidebar="collapsed"] .app-sidebar .sidebar-label {
+    display: none;
+  }
+
+  html[data-sidebar="collapsed"] .app-sidebar .sidebar-link {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  html[data-sidebar="collapsed"] .app-sidebar .sidebar-expand {
+    display: grid;
+  }
+}
+
+@layer utilities {
+  /* A faint grid used behind hero and empty states. */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.55) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.55) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

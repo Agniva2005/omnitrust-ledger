@@ -141,7 +141,10 @@ A local, demo-grade PKI document signing system. It has five signature algorithm
 | Algorithm comparison and crypto-agility page | IMPLEMENTED | Browser check |
 | Audit timeline, anchoring view, Security Lab console, benchmarks with statistics | IMPLEMENTED | Browser checks (Phases 7–10) |
 | Document versioning with per-version signature details | IMPLEMENTED | Document page |
-| Responsive layout on narrow screens | PARTIAL | The grouped navigation wraps onto several lines in narrow panes |
+| Design system: light, dark and system themes; semantic verdict colours; distinct colours for classical, post-quantum and hybrid algorithms | IMPLEMENTED | `app/globals.css`, `tailwind.config.ts`, `components/theme-toggle.tsx`; theme application checked in the browser (Phase 18) |
+| Application shell: collapsible sidebar, breadcrumbs, Ctrl/⌘+K command palette, mobile navigation sheet | IMPLEMENTED | `components/app-shell.tsx`; palette, filtering and sidebar collapse checked through the DOM (Phase 18) |
+| Migration-study results in the interface | IMPLEMENTED | Benchmarks page, read from `public/migration-study.json` |
+| Responsive layout on narrow screens | PARTIAL | A mobile navigation sheet replaces the sidebar below the large breakpoint, but layouts have not been reviewed at phone widths |
 | Formal accessibility audit | NOT IMPLEMENTED | Semantic labels and `aria-current` are used, but no audit was performed |
 
 ## 14. Benchmarks

@@ -1,5 +1,7 @@
+import { Link2 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { AnchorButton } from "@/app/(app)/anchoring/anchor-button";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,14 +20,12 @@ export default async function AnchoringPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Blockchain anchoring</h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Signatures and signed audit checkpoints are reduced to 32-byte SHA-256 commitments, batched
-          into an RFC 6962 Merkle tree, and only the tree&apos;s root is recorded on a local
-          development chain. No document, personal data or key goes on chain.
-        </p>
-      </div>
+      <PageHeader
+        icon={Link2}
+        eyebrow="Integrity"
+        title="Blockchain anchoring"
+        description="Signatures and signed audit checkpoints are reduced to 32-byte SHA-256 commitments, batched into an RFC 6962 Merkle tree, and only the tree's root is recorded on a local development chain. No document, personal data or key goes on chain."
+      />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -49,7 +49,7 @@ export default async function AnchoringPage() {
               </>
             ) : (
               <>
-                <Badge variant="outline">UNAVAILABLE</Badge>
+                <Badge variant="warning">UNAVAILABLE</Badge>
                 <p className="text-muted-foreground">{chain.reason}</p>
               </>
             )}

@@ -1,8 +1,12 @@
+import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { IssueCertificateForm } from "@/app/(app)/certificates/issue-form";
 import { RevokeButton } from "@/app/(app)/certificates/revoke-button";
+import { PageHeader } from "@/components/page-header";
+import { SecurityClassBadge } from "@/components/security-class-badge";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -34,40 +38,37 @@ export default async function CertificatesPage() {
     })),
   );
   const validationById = new Map(validations.map((entry) => [entry.id, entry.result]));
+  const canRevoke = can(actor.role, "certificate:revoke");
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Certificates</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Issued by the local root CA. Self-signed and trusted by nothing outside this app.
-        </p>
-      </div>
+      <PageHeader
+        icon={ShieldCheck}
+        title="Certificates"
+        description="Issued by the local root CA. Self-signed and trusted by nothing outside this app."
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Local root Certificate Authority</CardTitle>
-          <CardDescription>
-            {ca
-              ? `${ca.name} - signing with ${orchestrator.displayName(ca.algorithm)}`
-              : "Not created yet. Run npm run setup."}
-          </CardDescription>
-        </CardHeader>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border bg-card px-5 py-4 shadow-card">
+        <div className="flex items-center gap-3">
+          <span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary">
+            <ShieldCheck aria-hidden className="h-4 w-4" />
+          </span>
+          <div>
+            <div className="text-sm font-medium">Local root Certificate Authority</div>
+            <div className="text-xs text-muted-foreground">
+              {ca ? `${ca.name} - signing with ${orchestrator.displayName(ca.algorithm)}` : "Not created yet. Run npm run setup."}
+            </div>
+          </div>
+        </div>
         {ca && (
-          <CardContent className="space-y-1 text-sm text-muted-foreground">
+          <div className="text-xs text-muted-foreground sm:ml-auto sm:text-right">
             <div>
-              Valid until{" "}
-              <span className="font-mono text-xs">
-                {parseCertificate(ca.certPem).notAfter.toISOString()}
-              </span>
+              Valid until <span className="font-mono">{parseCertificate(ca.certPem).notAfter.toISOString()}</span>
             </div>
-            <div>
-              The CA private key is encrypted at rest with a key stored in a local file, not an
-              HSM or KMS.
-            </div>
-          </CardContent>
+            <div>The CA private key is encrypted at rest with a key stored in a local file, not an HSM or KMS.</div>
+          </div>
         )}
-      </Card>
+      </div>
 
       {can(actor.role, "certificate:issue") && (
         <Card>
@@ -84,7 +85,7 @@ export default async function CertificatesPage() {
         </Card>
       )}
 
-      <div className="rounded-lg border">
+      <Card className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -94,19 +95,20 @@ export default async function CertificatesPage() {
               <TableHead>Validation</TableHead>
               <TableHead>Expires</TableHead>
               <TableHead>Serial</TableHead>
-              {can(actor.role, "certificate:revoke") && <TableHead />}
+              {canRevoke && <TableHead />}
             </TableRow>
           </TableHeader>
           <TableBody>
             {certificates.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
                   No certificates issued yet.
                 </TableCell>
               </TableRow>
             )}
             {certificates.map((certificate) => {
               const validation = validationById.get(certificate.id);
+              const metadata = orchestrator.lookup(certificate.algorithm);
               return (
                 <TableRow key={certificate.id}>
                   <TableCell>
@@ -114,28 +116,33 @@ export default async function CertificatesPage() {
                       {certificate.subject.email}
                     </Link>
                   </TableCell>
-                  <TableCell>{orchestrator.displayName(certificate.algorithm)}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{orchestrator.displayName(certificate.algorithm)}</span>
+                      {metadata && <SecurityClassBadge securityClass={metadata.securityClass} />}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={certificate.status} />
                   </TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell>
                     {validation?.valid ? (
-                      <span className="text-success">valid</span>
+                      <Badge variant="success">valid</Badge>
                     ) : (
-                      <span className="text-destructive">{validation?.reason}</span>
+                      <Badge variant="destructive" className="font-mono">
+                        {validation?.reason}
+                      </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  <TableCell className="font-mono text-xs text-muted-foreground">
                     {certificate.expiresAt.toISOString().slice(0, 10)}
                   </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
+                  <TableCell className="font-mono text-xs text-muted-foreground" title={certificate.serialNumber}>
                     {certificate.serialNumber.slice(0, 16)}...
                   </TableCell>
-                  {can(actor.role, "certificate:revoke") && (
-                    <TableCell>
-                      {certificate.status !== "REVOKED" && (
-                        <RevokeButton certificateId={certificate.id} />
-                      )}
+                  {canRevoke && (
+                    <TableCell className="text-right">
+                      {certificate.status !== "REVOKED" && <RevokeButton certificateId={certificate.id} />}
                     </TableCell>
                   )}
                 </TableRow>
@@ -143,7 +150,7 @@ export default async function CertificatesPage() {
             })}
           </TableBody>
         </Table>
-      </div>
+      </Card>
     </div>
   );
 }

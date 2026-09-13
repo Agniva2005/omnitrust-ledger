@@ -1,5 +1,7 @@
+import { FlaskConical } from "lucide-react";
 import { redirect } from "next/navigation";
 import { LabConsole } from "@/app/(app)/security-lab/lab-console";
+import { PageHeader } from "@/components/page-header";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
@@ -13,16 +15,12 @@ export default async function SecurityLabPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Security Lab</h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Real attacks against real controls. Each run happens in a separate process with its own
-          freshly created database, document storage and master key, which are deleted afterwards.
-          The application&apos;s own data is never reachable from a scenario, and every run records its
-          before-and-after record counts as evidence. A scenario reports whether the control held;
-          nothing here is simulated.
-        </p>
-      </div>
+      <PageHeader
+        icon={FlaskConical}
+        eyebrow="Evaluation"
+        title="Security Lab"
+        description="Real attacks against real controls. Each run happens in a separate process with its own freshly created database, document storage and master key, which are deleted afterwards. The application's own data is never reachable from a scenario, and every run records its before-and-after record counts as evidence. A scenario reports whether the control held; nothing here is simulated."
+      />
 
       {can(actor.role, "lab:run") ? (
         <LabConsole scenarios={SCENARIOS} />

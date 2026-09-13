@@ -1,6 +1,8 @@
+import { ArrowLeft, Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { VerifyRunner } from "@/app/(app)/documents/[id]/verify/verify-runner";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { NotFoundError } from "@/lib/api";
@@ -29,14 +31,19 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Verify: {document.filename}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Runs the verification workflow from report Figure 8, extended with a trusted time-stamp
-          and CRL-based revocation (ten steps). Every step is executed against the bytes on disk
-          right now.
-        </p>
-      </div>
+      <PageHeader
+        icon={Fingerprint}
+        eyebrow="Verification"
+        title={`Verify: ${document.filename}`}
+        description="Runs the verification workflow from report Figure 8, extended with a trusted time-stamp and CRL-based revocation (ten steps). Every step is executed against the bytes on disk right now."
+        actions={
+          <Button asChild variant="outline">
+            <Link href={`/documents/${document.id}`}>
+              <ArrowLeft aria-hidden /> Back to document
+            </Link>
+          </Button>
+        }
+      />
 
       {!can(actor.role, "document:verify") ? (
         <Card>
@@ -54,11 +61,6 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
               there is nothing to verify. This is neither authentic nor invalid.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button asChild variant="outline">
-              <Link href={`/documents/${document.id}`}>Back to document</Link>
-            </Button>
-          </CardContent>
         </Card>
       ) : (
         <>
@@ -71,15 +73,32 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
                 <span className="font-mono text-xs">{latest.certificate.serialNumber}</span>.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-1 break-all text-sm">
-              <div>
-                <span className="text-muted-foreground">Hash that was signed:</span>{" "}
-                <span className="font-mono text-xs">{latest.documentVersion.hash}</span>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                The algorithm is resolved from the signature record, never hard-coded in the
-                verification path.
-              </div>
+            <CardContent>
+              <dl className="grid gap-3 text-sm sm:grid-cols-3">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <KeyRound aria-hidden className="h-3.5 w-3.5" /> Algorithm (from the signature record)
+                  </dt>
+                  <dd className="mt-1 font-medium">{orchestrator.displayName(latest.algorithm)}</dd>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <ShieldCheck aria-hidden className="h-3.5 w-3.5" /> Certificate serial
+                  </dt>
+                  <dd className="mt-1 break-all font-mono text-xs">
+                    <Link href={`/certificates/${latest.certificate.id}`} className="hover:underline">
+                      {latest.certificate.serialNumber}
+                    </Link>
+                  </dd>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <dt className="text-xs text-muted-foreground">Hash that was signed:</dt>
+                  <dd className="mt-1 break-all font-mono text-xs">{latest.documentVersion.hash}</dd>
+                </div>
+              </dl>
+              <p className="mt-3 text-xs text-muted-foreground">
+                The algorithm is resolved from the signature record, never hard-coded in the verification path.
+              </p>
             </CardContent>
           </Card>
 

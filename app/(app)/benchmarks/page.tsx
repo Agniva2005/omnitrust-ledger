@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Gauge } from "lucide-react";
 import { redirect } from "next/navigation";
+import { MigrationStudySection, loadMigrationStudy } from "@/app/(app)/benchmarks/migration-study";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -96,11 +99,12 @@ export default async function BenchmarksPage() {
   if (!actor) redirect("/login");
 
   const data = loadBenchmarks();
+  const study = loadMigrationStudy();
 
   if (!data) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Benchmarks</h1>
+        <PageHeader icon={Gauge} title="Benchmarks" description="Only numbers measured on the machine this page runs on; nothing ships with the repository." />
         <Card>
           <CardHeader>
             <CardTitle>No measurements yet</CardTitle>
@@ -114,6 +118,7 @@ export default async function BenchmarksPage() {
             </p>
           </CardContent>
         </Card>
+        {study && <MigrationStudySection study={study} />}
       </div>
     );
   }
@@ -125,13 +130,17 @@ export default async function BenchmarksPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Benchmarks</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Measured by <code className="text-xs">npm run benchmark</code> on {new Date(data.generatedAt).toLocaleString()}
-          {data.durationMs ? `, taking ${(data.durationMs / 1000).toFixed(1)} s` : ""}.
-        </p>
-      </div>
+      <PageHeader
+        icon={Gauge}
+        eyebrow="Evaluation"
+        title="Benchmarks"
+        description={
+          <>
+            Measured by <code className="font-mono text-xs">npm run benchmark</code> on {new Date(data.generatedAt).toLocaleString()}
+            {data.durationMs ? `, taking ${(data.durationMs / 1000).toFixed(1)} s` : ""}.
+          </>
+        }
+      />
 
       {(legacy || data.smoke) && (
         <Card className="border-amber-500/50">
@@ -344,6 +353,8 @@ export default async function BenchmarksPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {study && <MigrationStudySection study={study} />}
     </div>
   );
 }

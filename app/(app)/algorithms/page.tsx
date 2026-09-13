@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
+import { SecurityClassBadge } from "@/components/security-class-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getSession } from "@/lib/auth/session";
@@ -94,12 +94,15 @@ export default async function AlgorithmsPage() {
                       <div className="text-xs text-muted-foreground">{algorithm.family}</div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={algorithm.securityClass === "post-quantum" ? "success" : "secondary"}>{algorithm.securityClass}</Badge>
+                      <SecurityClassBadge securityClass={algorithm.securityClass} />
                     </TableCell>
                     <TableCell className="text-xs">
-                      {algorithm.securityLevel.nistPqCategory !== null
-                        ? `NIST PQ category ${algorithm.securityLevel.nistPqCategory}`
-                        : `~${algorithm.securityLevel.classicalBits}-bit classical`}
+                      {[
+                        algorithm.securityLevel.nistPqCategory !== null ? `NIST PQ category ${algorithm.securityLevel.nistPqCategory}` : null,
+                        algorithm.securityLevel.classicalBits !== null ? `~${algorithm.securityLevel.classicalBits}-bit classical` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" + ")}
                     </TableCell>
                     <TableCell className="text-xs">{algorithm.keySizes.publicKeyBytes} bytes</TableCell>
                     <TableCell className="text-xs">

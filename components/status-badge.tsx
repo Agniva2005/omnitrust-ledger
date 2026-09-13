@@ -1,20 +1,27 @@
 import { Badge } from "@/components/ui/badge";
 
-const VARIANTS: Record<string, "default" | "secondary" | "destructive" | "success" | "outline"> = {
+type Variant = "default" | "secondary" | "destructive" | "success" | "warning" | "info" | "outline";
+
+const VARIANTS: Record<string, Variant> = {
   HASHED: "secondary",
   UPLOADED: "secondary",
-  SIGNED: "default",
-  STORED: "default",
+  SIGNED: "info",
+  STORED: "info",
   VERIFIED: "success",
   VERSIONED: "secondary",
   ARCHIVED: "outline",
   REVOKED: "destructive",
   ACTIVE: "success",
-  EXPIRED: "outline",
+  EXPIRED: "warning",
   ROTATED: "secondary",
   RETIRED: "outline",
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={VARIANTS[status] ?? "secondary"}>{status}</Badge>;
+  return (
+    <Badge variant={VARIANTS[status] ?? "secondary"}>
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
+      {status}
+    </Badge>
+  );
 }

@@ -1014,3 +1014,55 @@ The dashboard read stored certificate statuses. The seeded expired certificate t
 - Mann–Whitney's normal approximation assumes about 20 or more samples per group; the study uses 30 and 200.
 - Cross-machine reproducibility is not established.
 - **Verification.** Inference 14, comparison 4 and study-design 4 tests pass; typecheck and lint pass.
+
+---
+
+## Phase 18 — Interface redesign
+
+**Why.** The interface was stock component styling: one neutral palette, no dark theme, a top bar that wrapped onto several lines in narrow panes, and no visual distinction between classical, post-quantum and hybrid algorithms. The user asked for an enterprise-grade interface, with a light/dark theme and a sidebar.
+
+**Design system.**
+- **`app/globals.css`** defines complete light and dark token sets.
+  - A restrained indigo accent.
+  - A semantic colour language: success for passed/VALID, destructive for failed/INVALID/ERROR, warning for unavailable/UNVERIFIABLE, and info.
+  - One colour per security class: classical slate, post-quantum teal, hybrid violet.
+- **`tailwind.config.ts`** exposes those tokens, plus system font stacks (nothing downloaded, so CI stays offline), elevation and motion.
+- `prefers-reduced-motion` disables animation.
+
+**Theme and shell.**
+- **Theme bootstrap.** An inline script in `lib/ui/theme-script.ts` sets the theme class and sidebar state before first paint. It lives outside any client module, and the existing CSP already permitted inline scripts, so it adds no new weakening.
+- **`ThemeToggle`** offers light, dark and system, following OS changes while set to system.
+- **`AppShell`** provides:
+  - a collapsible sidebar with grouped, icon-led navigation, driven by an `<html>` attribute so the width is right before hydration;
+  - breadcrumbs;
+  - a Ctrl/⌘+K command palette with arrow-key navigation, on Radix Dialog with an accessible title;
+  - a mobile navigation sheet;
+  - a user chip with sign-out.
+- **`DemoNotice`** keeps the "Demo / Not for Production Use" disclosure word for word, in the shell footer and on the public pages.
+
+**Pages.**
+- Landing and sign-in are rebuilt. The sign-in copy said "all three share the password" while four accounts exist; it now says four.
+- The dashboard, documents, verification, certificates and algorithms pages are rebuilt.
+- The audit log, anchoring, Security Lab and benchmarks pages gain the shared `PageHeader`.
+- The verification view now leads with a verdict banner, followed by the evidence chain with icons, a trust-summary grid and the step list.
+- The benchmarks page renders the Phase 17 migration study from `public/migration-study.json`:
+  - trust-chain sizes with multiples of the smallest algorithm;
+  - the algorithm-independent artefacts;
+  - workflow timings with confidence intervals;
+  - significant pairs after Holm;
+  - the orchestration-overhead table.
+
+  Every value is read from the file.
+- `SecurityClassBadge` gives classical, post-quantum and hybrid a consistent treatment. `app-nav.tsx` and `nav-links.tsx` were removed.
+- **Kept on purpose:** every page's h1 text, which `npm run e2e` checks, and every control label that `DEMO_SCRIPT.md` names ("Run verification", "Verify log integrity", "Create signed checkpoint", "Revoke", "Confirm revocation", "Anchor N pending commitments", "Run attack", the role chips).
+
+**Verification, and a caveat about it.**
+- **Screenshots were unreliable.** The in-app browser pane was hidden for part of the review, and its screenshots of a scrolled page drew the content offset or blank. DOM measurements at the same scroll position showed correct layout: the sticky header at 0 px and the expected section at the viewport centre. So the evidence below comes from the DOM rather than from images.
+- **All ten pages render.** Dashboard, documents, document detail, verify, certificates, algorithms, audit log, anchoring, Security Lab and benchmarks each returned 200 in an admin session, with their E2E headings, no error boundary and no key material. The benchmarks page contains the migration-study and agility sections; the algorithms page shows the hybrid badge.
+- **Command palette:** Ctrl+K opened it with 11 entries, typing "anchor" filtered to Anchoring, and Escape closed it.
+- **Theme:** the dark and light controls applied the class and stored the preference.
+- **Sidebar collapse.** A first reading reported 256 px both collapsed and expanded. The collapse rule was present and the labels' `display` switched correctly. With the width transition disabled the sidebar measured 68 px collapsed and 256 px expanded: the transition does not advance in a hidden pane.
+- **Not established:** visual review of the light theme and of phone-width layouts, and a formal accessibility audit.
+- Typecheck and lint pass.
+- **`npm run ci`: CI PASSED in 187.7 s**, all 11 steps, including the production build of the redesigned interface.
+- **`npm run e2e`: 17 of 17 passed against the redesigned production build.** This includes "every application page renders for an admin (8 pages)", which checks each page's heading and the absence of key material, and the demo-script flows that drive the preserved control labels.
