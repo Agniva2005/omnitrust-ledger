@@ -35,8 +35,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const certificate = await issueCertificate({ actor, ...parsed.data });
-    return NextResponse.json({ certificate }, { status: 201 });
+    // issueCertificate returns the stored key pair too, including the encrypted private key. It
+    // must never leave the server, so the response carries only the key pair's id, state and
+    // algorithm, the same view the list and detail routes give.
+    const { keyPair, ...certificate } = await issueCertificate({ actor, ...parsed.data });
+    return NextResponse.json(
+      { certificate: { ...certificate, keyPair: { id: keyPair.id, status: keyPair.status, algorithm: keyPair.algorithm } } },
+      { status: 201 },
+    );
   } catch (error) {
     return errorResponse(error);
   }

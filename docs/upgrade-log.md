@@ -585,3 +585,39 @@ Both surfaced as intermittent Security Lab failures while the full suite ran alo
 - The smoke run wrote schema 2 with n = 10 for all four algorithms and left `public/benchmarks.json` byte-for-byte unchanged (SHA-256 compared).
 - Browser, `/benchmarks`: n, median, mean with CI, SD and CV, min / p95 / max and outliers, together with the environment (including OpenSSL 3.5.5, V8 and the git commit marked as having uncommitted changes) and the methodology; no console errors.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+
+---
+
+## Phase 11 — Route-level tests, and an API that leaked encrypted private keys
+
+### The gap
+
+Of the 22 route handlers under `app/api`, only 8 were imported by any test. The rest were exercised only through their service functions, so session lookup, input validation, status mapping and response shaping in the handlers themselves were untested. The Phase 0 audit had recorded this gap.
+
+### What changed
+
+- **`tests/api/routes.test.ts`** runs the 14 untested handlers for real; only `next/headers` is replaced, because it exists only inside a Next.js request scope. The routes are `auth/me`, documents (list, upload, detail, versions), sign, verify, certificates (list, issue, revoke), audit verify and checkpoints, the three anchoring routes (against the test chain) and the Security Lab. Where a route has them, each is checked for:
+  - 401 when signed out, and 403 for a role without the capability;
+  - 400 for malformed input and 404 for unknown ids;
+  - 409 for conflicts: duplicate upload, re-signing, re-revoking, nothing to anchor, and verifying an unsigned document (`notSigned: true`);
+  - the success status and response shape.
+
+  Security Lab runs are checked for refusals only, since real sandboxed runs are covered in `tests/security-lab`.
+- **Every response body in that file is checked** for `PRIVATE KEY`, `encryptedPrivateKey`, `passwordHash`, bcrypt hashes and stack traces.
+- **`tests/api/route-coverage.test.ts`** enumerates every `app/api/**/route.ts` and fails if no test imports it, so a new route cannot be added without a route-level test. All 22 routes are now imported.
+
+### Security finding, fixed
+
+**`POST /api/certificates` returned the new certificate's encrypted private key.** The route passed `issueCertificate`'s record straight to the response, and that record includes the key pair with its `encryptedPrivateKey` column.
+
+- **Exposure:** the AES-256-GCM ciphertext of the private key, readable only with the server's local master key, sent to whoever issued the certificate (the subject, or an admin issuing for another user). This was the live behaviour of the running app since certificate issuance was built.
+- **Why it matters:** it breaks the brief's rule that no API may expose private-key material, and it removed a layer of defence. Anyone who later obtained the master-key file would no longer need database access to decrypt keys from captured responses.
+- **How it was found:** the new body check failed on the five tests that issue certificates through the route, before any fix.
+- **Fix:** the route now returns the certificate with the key pair reduced to `id`, `status` and `algorithm`, the same view the list and detail routes already gave. The certificate issue form only reads `error` from the response, so it is unaffected. The other routes' bodies passed the same check.
+- **Not done:** keys issued before the fix are unchanged. A ciphertext already delivered cannot be recalled, and rotating the demo master key is outside this phase; the limitation is recorded here.
+
+### Verification
+
+- `npm test`: **687 passed, 1 skipped** across 50 files (673 after Phase 10). New: `tests/api/routes.test.ts` (13 tests, each checking several routes and statuses) and `tests/api/route-coverage.test.ts` (1). The five certificate-related route tests failed on the leak before the fix and passed after it; the API tests then ran 23/23.
+- The fix is exercised through the real route handler in the tests; it was not re-checked over HTTP against `npm run dev`.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
