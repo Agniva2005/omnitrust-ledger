@@ -25,7 +25,7 @@ Severity is relative to this demonstrator's stated purpose. "Fixed" means change
 | S2 | Medium | Unauthenticated `GET` requests changed server state (TSA creation, CRL issuance) | **Fixed**, Phase 13 |
 | S3 | Medium | A fresh installation's first time-stamp could predate its own authority certificate | **Fixed**, Phase 10 |
 | S4 | Low | A not-yet-valid certificate was reported as `CERTIFICATE_EXPIRED` | **Fixed**, Phase 10 |
-| S5 | Low | README limitations understate the implemented controls | Open, for Phase 15 documentation |
+| S5 | Low | README limitations understate the implemented controls | **Fixed**, Phase 15 (README rewritten; guarded by `tests/ci/docs-claims.test.ts`) |
 | L1–L10 | — | Accepted limitations of a local demonstrator | Documented below |
 
 ### S1 — Encrypted private key returned by the certificate issuance API

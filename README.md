@@ -1,24 +1,16 @@
 # OmniTrust Ledger
 
-A PKI-driven document management system with algorithm-agnostic, multi-algorithm digital
-signature orchestration. Documents are hashed, signed under **RSA-PSS**, **ECDSA P-256**
-or **EdDSA Ed25519** through a single interface, and verified against X.509 certificates
-issued by a local Certificate Authority — with every security-relevant action recorded in
-a hash-chained audit log.
+A PKI-driven document management system with algorithm-agnostic, multi-algorithm digital signature orchestration. Documents are hashed and signed under **RSA-PSS 3072**, **ECDSA P-256**, **EdDSA Ed25519** or the post-quantum **ML-DSA-65**, all through one interface. Signatures are verified against X.509 certificates from a local Certificate Authority, time-stamped by a local RFC 3161 authority, checked against CA-signed revocation lists, exportable as standard CMS signatures, and recorded in a hash-chained audit log with signed checkpoints and optional anchoring on a local blockchain.
 
 > ### Demo / Not for Production Use
 >
-> This is a demonstrator built to accompany a research report. The cryptography is real —
-> every signature verifies, and you can check them with OpenSSL yourself — but the
-> **operational security posture is not production-grade**. See
-> [Limitations](#limitations--not-for-production-use) for the specifics. Do not use it to
-> sign anything that matters.
+> This is a demonstrator built to accompany a research report. The cryptography is real: every signature verifies, and you can check them with OpenSSL or an independent library yourself. The **operational security posture is not production-grade**. The CA, Time-Stamp Authority and chain are local and trusted by nothing outside this installation, and private keys are protected by a key in a local file. See [Limitations](#limitations--not-for-production-use). Do not use it to sign anything that matters.
 
 ---
 
 ## Quickstart
 
-Requires Node.js 20 or newer (developed on 24.14).
+Requires **Node.js 24** (developed and tested on 24.14.0). ML-DSA-65 runs in the OpenSSL 3.5 that Node 24 bundles; older Node versions cannot generate or verify ML-DSA keys.
 
 ```bash
 npm install
@@ -26,12 +18,20 @@ npm run setup
 npm run dev
 ```
 
-Then open <http://localhost:3000> and follow **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** for a
-guided walkthrough.
+Then open <http://localhost:3000> and follow **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)**.
 
-`npm run setup` is idempotent and does everything a fresh clone needs: writes `.env` with
-a freshly generated `JWT_SECRET`, creates `storage/` and a 32-byte master encryption key,
-applies the database migrations, and seeds the demo data.
+`npm run setup` is idempotent. It:
+- writes `.env` with a freshly generated `JWT_SECRET`;
+- creates `storage/` and a 32-byte master encryption key;
+- applies the database migrations;
+- seeds the demo data through the real services: the CA, one certificate per algorithm plus an expired one, signed and time-stamped samples, an unsigned draft and a pre-tampered invoice.
+
+Two optional extras:
+
+```bash
+npm run chain       # in a second terminal: a local chain for the Anchoring page
+npm run benchmark   # measure this machine; the Benchmarks page shows nothing until you do
+```
 
 ### Demo accounts
 
@@ -39,87 +39,93 @@ All four use the password `demo1234`.
 
 | Email | Role | Can |
 | --- | --- | --- |
-| `admin@demo` | ADMIN | everything, including revoking certificates and verifying the audit chain |
+| `admin@demo` | ADMIN | everything, including revocation, signed audit checkpoints, anchoring and the Security Lab |
 | `signer@demo` | SIGNER | upload, sign, verify, issue certificates for itself |
-| `verifier@demo` | VERIFIER | verify documents and the audit chain; **cannot** sign |
-| `viewer@demo` | VIEWER | read only; **cannot** upload or issue certificates |
+| `verifier@demo` | VERIFIER | verify documents and the audit log; **cannot** sign |
+| `viewer@demo` | VIEWER | read only; **cannot** upload, issue certificates or verify |
 
 ---
 
-## What the demo shows
+## What the demo shows, and how each claim is backed
 
-| Claim | Where to see it | How it is enforced |
+| Claim | Where to see it | Evidence |
 | --- | --- | --- |
-| The algorithm can be swapped without touching other layers | Sign the same document flow under three algorithms | All algorithm-specific code lives in `/lib/crypto/`; `npm run check:boundary` fails the build if any escapes |
-| Tampering is reliably detected | `invoice-tampered.txt` → Verify | SHA-256 recomputed from the bytes on disk at verification time, compared with the hash that was signed |
-| Expiry and revocation are enforced | Revoke a certificate, then re-verify a document it signed | Certificate validation runs as step 4 of every verification |
-| The audit log is tamper-evident | Audit log → Verify log integrity | `entryHash = SHA256(prevHash + entry)`, walked and recomputed |
-| Performance across algorithms can be measured | `/benchmarks` | `npm run benchmark` measures on your machine; nothing is shipped pre-computed |
+| Algorithms can be added or swapped without touching other layers | Algorithms page; sign under four algorithms | `npm run check:boundary`; `tests/crypto/agility.test.ts` registers an extra ML-DSA-44 provider at test time |
+| Tampering is detected | `invoice-tampered.txt` → Verify | SHA-256 recomputed from the bytes on disk; Security Lab document and ciphertext attacks |
+| A signature's validity is judged at a trusted time | Revoke a certificate, re-verify | RFC 3161 time-stamps; timestamp-aware revocation policy; `tests/verification/timestamp-aware.test.ts` |
+| Revocation is published, not just a database column | `/api/pki/crl`, the certificate explorer | CA-signed CRLs with reason codes; checked by `openssl crl` in tests |
+| Signatures verify outside the application | Document page → CMS (.p7s) | `openssl cms -verify` for RSA-PSS and ECDSA; independent libraries for Ed25519 and ML-DSA |
+| The audit log is tamper-evident, including against a consistent rewrite | Audit log → Verify log integrity | Hash chain plus signed, time-stamped checkpoints |
+| Commitments can be anchored without putting data on a chain | Anchoring page | RFC 6962 Merkle roots on a local chain; only the root and leaf count are sent |
+| The controls hold against real attacks | Security Lab | 15 scenarios run in disposable sandboxes |
+| Performance is measured, with its uncertainty | Benchmarks page | n, median, mean with 95% CI, SD, outliers, recorded environment |
 
 ---
 
 ## Architecture
 
-Seven layers, each depending only on the layers beneath it.
+Each layer depends only on the layers beneath it.
 
 | Layer | Folder | Responsibility |
 | --- | --- | --- |
-| Presentation | `app/` | Pages and API route handlers. No business logic. |
-| Authentication & Authorization | `lib/auth/` | Sessions (bcrypt + JWT in an httpOnly cookie) and a role-to-capability map |
-| Document Management | `lib/documents/` | Upload, hashing, versioning, lifecycle, signing, verification |
-| Cryptographic Orchestration | `lib/crypto/` | **The only place algorithm-specific code lives.** Provider registry + RSA/ECDSA/EdDSA implementations |
-| PKI | `lib/pki/` | Local CA, certificate issuance/validation/revocation, key lifecycle |
-| Secure Storage | `lib/documents/storage.ts` | Encrypted blobs on disk. Makes no cryptographic decisions; calls the layer above |
-| Audit & Monitoring | `lib/audit/` | Append-only hash-chained log and its integrity checker |
+| Presentation | `app/`, `components/` | Pages and API route handlers; no business logic |
+| Authentication & Authorisation | `lib/auth/` | bcrypt, JWT session cookie, failed-login throttling, role-to-capability map |
+| Document Management | `lib/documents/` | Upload, hashing, versioning, lifecycle, signing, verification, export |
+| Cryptographic Orchestration | `lib/crypto/` | **The only place algorithm-specific code lives**: provider registry, four providers, hashing, Merkle trees |
+| PKI | `lib/pki/` | Local CA, certificates, validation, CRLs, RFC 3161 TSA, CMS, revocation policy, audit checkpoints, certificate explorer |
+| Anchoring | `lib/anchoring/` | Merkle batching and a minimal contract on a local chain |
+| Secure Storage | `lib/documents/storage.ts` | AES-256-GCM blobs on disk; makes no cryptographic decisions |
+| Audit & Monitoring | `lib/audit/` | Append-only hash-chained log and its integrity walk |
+| Security Lab | `lib/security-lab/` | Attack scenarios, confined to disposable sandboxes |
 
 ### The boundary that matters
 
-The central architectural claim is that **adding a fourth algorithm means one new
-provider file and one line in the registry**, with no other file changing. That is
-enforced mechanically rather than by convention:
+Adding an algorithm means one provider file and one registry entry. This is enforced, not assumed:
 
 ```bash
 npm run check:boundary
 ```
 
-It scans `app/ lib/ components/ prisma/ scripts/` — excluding `lib/crypto/` — and fails
-on any `@noble/*` import, any `@peculiar/x509` import outside the PKI layer, or any
-`node:crypto` signature, cipher or digest primitive. The same check runs inside
-`npm test`, and the checker itself is tested against probe files that must be flagged.
+It scans `app/ lib/ components/ prisma/ scripts/` outside `lib/crypto/`, and fails on:
+- cryptographic imports (`@noble/*`, `node:crypto` primitives, `@peculiar/x509` outside the PKI layer);
+- any algorithm identifier written as a literal. One policy file, which chooses the CA's algorithm, is allowlisted.
+
+### Verification
+
+Ten steps, each reporting PASS, FAIL, UNAVAILABLE or SKIPPED:
+1. retrieve the document;
+2. retrieve the signature;
+3. retrieve the certificate;
+4. verify the RFC 3161 time-stamp over the signature value (optional; proof of existence);
+5. validate the certificate **at the proven signing time**: chain, profile, validity period;
+6. evaluate revocation from the CA-signed CRL;
+7. extract the key from the certificate and confirm its algorithm;
+8. recompute SHA-256 from the stored bytes;
+9. verify the signature;
+10. compare the hashes.
+
+Four verdicts are kept distinct, never collapsed into two:
+
+| Verdict | Meaning | Reasons |
+| --- | --- | --- |
+| **VALID** (shown as AUTHENTIC) | every required check passed | — |
+| **INVALID** | positive evidence against the document, signature, time-stamp or certificate | `CERTIFICATE_CHAIN_INVALID`, `CERTIFICATE_EXPIRED`, `CERTIFICATE_NOT_YET_VALID`, `CERTIFICATE_REVOKED`, `ALGORITHM_MISMATCH`, `HASH_MISMATCH`, `SIGNATURE_INVALID`, `TIMESTAMP_INVALID` |
+| **UNVERIFIABLE** | evidence needed for a decision could not be obtained | `UNSUPPORTED_ALGORITHM`, `CERTIFICATE_NOT_FOUND`, `REVOCATION_STATUS_UNAVAILABLE`, `REVOKED_NO_PROOF_OF_EXISTENCE`, `EXPIRED_NO_PROOF_OF_EXISTENCE`, `STORAGE_UNAVAILABLE` |
+| **ERROR** | the verifier itself failed | `INTERNAL_ERROR` |
+
+### Revocation over time
+
+Policy `omnitrust-timestamp-aware-revocation/1` (`lib/pki/revocation.ts`):
+- A time-stamped signature survives a later revocation for a reason that does not imply key compromise, such as `affiliationChanged` or `superseded`.
+- For `keyCompromise`, a signature survives only if it is proven to predate the recorded invalidity date.
+- With no invalidity date the compromise time is unknown and the signature is INVALID. This is OmniTrust policy, stated as such, not an ETSI rule.
+- With no time-stamp at all, a revoked or expired certificate makes the result UNVERIFIABLE rather than INVALID, following the "no proof of existence" indications of ETSI EN 319 102-1.
 
 ### Lifecycles
 
-- **Document** (`lib/documents/lifecycle.ts`): `created → uploaded → hashed → signed → stored → verified → versioned → archived | revoked`
-- **Certificate** (`lib/pki/keys.ts`): `requested → active → expired | revoked`
-- **Key** (`lib/pki/keys.ts`, aligned to NIST SP 800-57): `generated → active → rotated → revoked → retired`
-
-Each is an explicit transition table; an illegal transition throws rather than being
-silently persisted.
-
-### The verification workflow
-
-Eight steps, executed in order, each reporting its own result so the UI can show exactly
-which check failed:
-
-1. Retrieve the document and its recorded hash
-2. Retrieve the signature record
-3. Retrieve the signing certificate
-4. Validate the certificate — chain to the local CA, validity period, revocation
-5. Extract the public key **from the certificate**, not from the key-pair record
-6. Recompute SHA-256 from the bytes stored on disk right now
-7. Verify the signature against that recomputed hash, with the algorithm resolved from the signature record
-8. Compare the recomputed hash with the hash that was actually signed
-
-The result is structured, not a boolean:
-
-```ts
-type VerificationResult = {
-  outcome: "AUTHENTIC" | "INVALID";
-  reason?: "HASH_MISMATCH" | "SIGNATURE_INVALID" | "CERTIFICATE_EXPIRED"
-         | "CERTIFICATE_REVOKED" | "CERTIFICATE_CHAIN_INVALID";
-  steps: { step: string; passed: boolean; detail?: string }[];
-};
-```
+- **Document**: `created → uploaded → hashed → signed → stored → verified → versioned → archived | revoked`
+- **Certificate**: `requested → active → expired | revoked`
+- **Key** (NIST SP 800-57): `generated → active → rotated → revoked → retired`
 
 ---
 
@@ -127,26 +133,31 @@ type VerificationResult = {
 
 | Algorithm | Implementation | Details |
 | --- | --- | --- |
-| RSA | `node:crypto` (OpenSSL) | RSASSA-PSS, 3072-bit modulus, SHA-256, digest-length salt |
-| ECDSA | `node:crypto` (OpenSSL) | NIST P-256 with SHA-256, DER-encoded |
-| EdDSA | `@noble/ed25519` | Ed25519 per RFC 8032, deterministic, 64-byte signatures |
-| Hashing | `node:crypto` | SHA-256 |
-| Certificates | `@peculiar/x509` over Node WebCrypto | X.509 v3, signed by the local root CA (ECDSA P-256) |
+| RSA-PSS 3072 | `node:crypto` (OpenSSL 3.5) | SHA-256, MGF1-SHA-256, 32-byte salt; randomised |
+| ECDSA P-256 | `node:crypto` (OpenSSL 3.5) | SHA-256, DER signatures; randomised |
+| EdDSA Ed25519 | `@noble/ed25519` | RFC 8032, deterministic, 64-byte signatures |
+| ML-DSA-65 | `node:crypto` (OpenSSL 3.5) | FIPS 204, NIST PQ category 3, 3309-byte signatures; cross-checked against `@noble/post-quantum` |
+| Hashing | `node:crypto` | SHA-256 (SHA-512 for EdDSA and ML-DSA CMS digests) |
+| Certificates | `@peculiar/x509` | X.509 v3 under a local root CA (ECDSA P-256) |
+| Time-stamps | local RFC 3161 TSA | CMS SignedData over TSTInfo with signingCertificateV2; verified by `openssl ts` in tests |
+| Signature export | CMS / PKCS#7 (RFC 5652) | Detached, with its own time-stamp over the signature value; no CAdES conformance is claimed |
 | At rest | `node:crypto` | AES-256-GCM for document blobs and private keys |
 
-Nothing is hand-rolled. What gets signed is the raw 32 bytes of the document's SHA-256
-digest, identically across all three algorithms.
+Nothing is hand-rolled. The stored signature covers the raw 32 bytes of the document's SHA-256, identically for all algorithms.
 
-### Verify a signature without trusting this application
+### Verify without trusting this application
+
+On a document page, download **CMS (.p7s)**, **Document** and the **CA certificate**, then run:
+
+```bash
+openssl cms -verify -binary -inform DER -in document.p7s -content document -CAfile ca.pem -out verified.bin
+```
+
+This works for RSA-PSS and ECDSA with the OpenSSL CLI; 3.2.4 and 3.4.0 were checked. Those CLIs cannot process Ed25519 or ML-DSA CMS signatures, so those are verified in the test suite with `node:crypto` and `@noble/post-quantum`. You can also export everything for a stored signature from the command line:
 
 ```bash
 npm run export:signature -- audit-report-ed25519.txt
 ```
-
-This exports the plaintext, the signed digest, the raw signature, the certificate and the
-extracted public key, then prints the exact `openssl` command for that algorithm. Running
-it has OpenSSL confirm the signature independently, using the public key taken from the
-stored certificate.
 
 ---
 
@@ -154,108 +165,89 @@ stored certificate.
 
 | Command | Does |
 | --- | --- |
-| `npm run dev` | Start the development server |
+| `npm run dev` | Development server on port 3000 |
 | `npm run setup` | Generate `.env` and keys, migrate, seed. Idempotent |
-| `npm test` | Full test suite (266 tests), including the crypto boundary check |
-| `npm run build` | Production build with type checking |
-| `npm run benchmark` | Measure sign/verify/hash/key-generation per algorithm; writes `public/benchmarks.json` |
-| `npm run check:boundary` | Verify no algorithm-specific code exists outside `/lib/crypto/` |
-| `npm run export:signature -- <file>` | Export a signature for external verification |
+| `npm test` | Full test suite |
+| `npm run ci` | Every quality gate offline: dependencies, schema, contract artifact, lint, type-check, boundary, unit/integration/security tests, build, benchmark smoke run |
+| `npm run e2e` | End-to-end regression against an isolated production installation (run `npm run build` first) |
+| `npm run build` | Production build |
+| `npm run benchmark` | Measure sign/verify/hash/key generation per algorithm; `-- --smoke` for a quick run |
+| `npm run chain` | Local Hardhat chain for anchoring (in-memory; state is lost when it stops) |
+| `npm run contract:compile` | Recompile the anchor contract; `-- --check` confirms the committed artifact |
+| `npm run check:boundary` | Confirm no algorithm-specific code exists outside `lib/crypto/` |
+| `npm run export:signature -- <file>` | Export a stored signature, its CMS form and the certificates for external verification |
 | `npm run db:seed` | Re-run the seed only |
+| `npm run db:reset` | Delete and recreate the development database |
 
 ### Environment variables
 
-Created by `npm run setup`; documented in `.env.example`.
+Created by `npm run setup`; see `.env.example`.
 
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | SQLite file, relative to `prisma/` |
-| `JWT_SECRET` | Signs the session cookie. Generated randomly at setup |
-| `MASTER_KEY_PATH` | AES-256-GCM key used to encrypt private keys and blobs at rest |
-| `STORAGE_ROOT` | Where encrypted document blobs live |
+| `JWT_SECRET` | Signs the session cookie; generated at setup |
+| `MASTER_KEY_PATH` | AES-256-GCM key protecting private keys and blobs |
+| `STORAGE_ROOT` | Where encrypted blobs live |
+| `ANCHOR_RPC_URL` | Chain for anchoring; default `http://127.0.0.1:8545` |
+| `SECURITY_LAB_ROOT` | Where Security Lab sandboxes are created; default `storage/lab` |
 
 ---
 
-## Testing
+## Testing and evidence
 
 ```bash
-npm test
+npm test        # about 700 tests
+npm run ci      # every gate, with a PASS/FAIL summary
+npm run e2e     # the whole demo over HTTP, against a throwaway installation
 ```
 
-The suite covers the security-relevant *failure* paths, not just the happy ones:
+The tests exercise failure paths with real cryptography and real data, not mocks. Highlights:
 
-- Every provider against a flipped digest bit, a flipped signature bit, a truncated
-  signature, the wrong key, and every cross-algorithm combination.
-- Ed25519 against the **RFC 8032 Test 1 vector**, plus cross-signing with OpenSSL.
-- ECDSA P-256 cross-validated against `@noble/curves`, a second independent
-  implementation.
-- All five required verification failure modes — `HASH_MISMATCH`,
-  `CERTIFICATE_EXPIRED`, `CERTIFICATE_REVOKED`, `SIGNATURE_INVALID`, and cross-algorithm
-  key substitution — against real cryptography with no mocking.
-- Tamper detection at two layers: a raw byte flip caught by the AES-GCM tag, and validly
-  re-encrypted substituted content caught by the hash comparison.
-- Audit chain tampering, including an entry re-attributed to a different real user, a
-  deleted entry, and an attacker who recomputes the entry hash but cannot fix the next
-  entry's link.
-- RBAC: a VERIFIER cannot sign, a VIEWER cannot upload or issue certificates, only an
-  ADMIN can revoke.
+- **Independent references:**
+  - Ed25519 against the RFC 8032 test vector;
+  - ECDSA against `@noble/curves`;
+  - ML-DSA-65 against `@noble/post-quantum` from the same seed;
+  - Merkle trees against the Certificate Transparency test vectors.
+- **External tools:** `openssl` verifies raw signatures, CMS exports, CRLs and time-stamp tokens, and a checkpoint signature.
+- **Every verification failure mode,** including algorithm confusion, key substitution, time-stamp swaps, forged CRLs and signatures proven to predate a revoked or not-yet-valid certificate.
+- **Audit log attacks:** row edits, re-attribution and deletion; a consistent rewrite that fools the hash chain but not a signed checkpoint; truncation.
+- **Every API route at the route level,** with a scan of every response body for key material; a coverage test fails if a route has no route-level test.
+- **Security Lab scenarios** run for real, and an isolation guard refuses to let them touch non-sandbox data.
+- **Supporting records:**
+  - [`docs/upgrade-log.md`](docs/upgrade-log.md) records each upgrade phase, the evidence, and the bugs found along the way;
+  - [`docs/audit/02-security-audit.md`](docs/audit/02-security-audit.md) is the security audit;
+  - [`docs/final-implementation-report.md`](docs/final-implementation-report.md) states the implementation status of every feature.
 
 ---
 
 ## Limitations — not for production use
 
-These are deliberate consequences of building a self-contained demonstrator. They are
-listed so that nothing here is mistaken for a production security posture.
+**PKI and trust**
+- The root CA, Time-Stamp Authority and audit signer are **local and trusted by nothing outside this installation**.
+- Revocation is published as CA-signed CRLs. There is **no OCSP**, no delta CRL, **no intermediate CA**, and no path-length or name-constraint enforcement beyond the root's basic constraints.
+- Certificate renewal and an operator key-rotation workflow are **not implemented**; the key lifecycle states exist, but only issuance and revocation move keys between them.
 
-**PKI**
-
-- The root CA is **self-signed and trusted by nothing outside this application**. It is
-  created by the seed script and lives in the same SQLite database as everything else.
-- There is **no CRL or OCSP**. Revocation is a status column, checked by this application
-  only. Nothing outside it would ever learn a certificate had been revoked.
-- There is no certificate chain beyond one level, no intermediate CAs, and no path-length
-  or name-constraint enforcement past what the root's basic constraints declare.
-- Certificate renewal is not implemented; issuing a new certificate is the only path.
-
-**Key management**
-
-- Private keys are encrypted with AES-256-GCM using a key stored in a **local file**
-  (`storage/keys/master.key`), not an HSM or KMS. Anyone who can read the filesystem can
-  read that key and therefore every private key.
-- Key rotation and retirement exist as lifecycle states but have no operator workflow.
+**Keys and secrets**
+- Private keys are encrypted with a key in a **local file** (`storage/keys/master.key`), not an HSM or KMS. Anyone who can read the filesystem can read every private key. Its restrictive file mode is not enforced on Windows.
+- The four demo accounts share a password shown on the login page.
 
 **Application security**
-
-- **No rate limiting** anywhere, including on login. No account lockout, no CAPTCHA.
-- No CSRF tokens. The session cookie is `SameSite=Lax`, which mitigates but does not
-  eliminate cross-site request risks for the state-changing `POST` routes.
-- Sessions cannot be revoked server-side before the JWT's 8-hour expiry.
-- `secure` is only set on the session cookie in production builds, so the cookie is sent
-  over plain HTTP in development.
-- Passwords have no complexity or breach-check requirements, and the demo accounts share
-  a well-known password that is printed on the login page.
+- Sessions are stateless JWTs: logout clears the cookie, but a stolen token stays valid for up to 8 hours.
+- Failed-login throttling is in memory, per process. Its per-client key trusts `X-Forwarded-For`; the per-account limit is the one that cannot be sidestepped.
+- The CSP allows `'unsafe-inline'` scripts, because the Next.js App Router emits inline bootstrap scripts.
+- The session cookie is `secure` only in production builds.
+- Authorisation is by role: every role, including VIEWER, can read and export every document.
 - No multi-factor authentication.
 
-**Data and operations**
+**Integrity and anchoring**
+- The audit log is tamper-evident, not tamper-proof. Entries after the latest checkpoint are protected by the hash chain alone. Deleting the newest checkpoint together with the entries it covers is detectable only through an anchor.
+- The anchoring chain is **in-memory**: restarting it discards every anchor, and verification then reports UNAVAILABLE. Transactions come from its public development account; a public chain would need real key custody, which is not implemented. An anchor proves existence by a block on that chain instance, not identity.
 
-- SQLite with a single application process. The audit log's append serialisation is
-  **in-process**; running multiple instances against one database would need a
-  database-level lock (the unique `seq` constraint would catch a conflict, but the retry
-  strategy assumes a single writer).
-- Document blobs are never deleted, and there is no retention or archival policy beyond
-  the lifecycle states.
-- No backups, no key escrow, no disaster recovery.
-- The audit log is tamper-*evident*, not tamper-*proof*: someone with database access can
-  still alter it, and the integrity check is what surfaces that they did. Nothing is
-  replicated to external or append-only storage.
-
-**Known dependency advisories**
-
-`npm audit` reports findings in build and test tooling only — `@vitest/mocker`,
-`deepmerge-ts` via the Prisma CLI, and a nested `postcss` inside Next 15's build
-pipeline. None of them are in the application's request path, and every offered fix is a
-major version upgrade that would break the pinned toolchain. They are listed here rather
-than silently ignored.
+**Operations**
+- SQLite with a single application process; audit appends are serialised in-process.
+- No backups, retention policy or disaster recovery.
+- `npm audit` needs the npm registry and is not part of the offline CI. The advisories reviewed at the start of the upgrade were confined to build and test tooling; they have not been re-checked offline.
 
 ---
 
@@ -263,20 +255,22 @@ than silently ignored.
 
 ```
 app/                    Pages and API routes (presentation only)
-components/             UI primitives (shadcn/ui, vendored)
+components/             UI components
+contracts/              OmniTrustAnchor.sol (anchoring)
 lib/
-  auth/                 Sessions and the role-to-capability map
-  crypto/               THE ONLY PLACE ALGORITHM-SPECIFIC CODE LIVES
-    providers/          rsa.ts, ecdsa.ts, eddsa.ts
-    orchestrator.ts     Registry: add an algorithm here and nowhere else
-  documents/            Upload, storage, lifecycle, signing, verification
-  pki/                  CA, certificates, validation, key lifecycle
-  audit/                Hash-chained log and its integrity checker
+  auth/                 Sessions, throttling, role-to-capability map
+  crypto/               THE ONLY PLACE ALGORITHM-SPECIFIC CODE LIVES (providers, registry, hashing, Merkle)
+  documents/            Upload, storage, lifecycle, signing, verification, export
+  pki/                  CA, certificates, validation, CRL, TSA, CMS, revocation policy, checkpoints, explorer
+  audit/                Hash-chained log and integrity walk
+  anchoring/            Chain client and Merkle batching
+  security-lab/         Attack scenarios and sandboxing
+  benchmarks/           Statistics
 prisma/                 Schema, migrations, seed and fixtures
-scripts/                setup, benchmark, boundary check, signature export
-tests/                  Mirrors lib/: auth, crypto, pki, documents, verification, audit
-storage/                Encrypted blobs and the master key (gitignored)
+scripts/                setup, benchmark, ci, e2e, boundary check, contract compile, signature export
+tests/                  Unit, integration and security suites
+docs/                   Upgrade log, audits, final implementation report
+storage/                Encrypted blobs, keys, test and CI output (gitignored)
 ```
 
-`PROGRESS.md` records what was built in each phase, what was verified and how, and the
-reasoning behind every judgement call.
+[`PROGRESS.md`](PROGRESS.md) records the original build; [`docs/upgrade-log.md`](docs/upgrade-log.md) records the upgrade that followed it.

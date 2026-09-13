@@ -769,3 +769,65 @@ The first version of `scripts/e2e.ts` hashed the development database with `crea
   - The isolated installation was still removed and the development database was still untouched.
 - `npm test`: **699 passed, 1 skipped** across 53 files (695 after Phase 13), including the four E2E plan tests.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`: clean. The production build used was made after the last application change, in Phase 13; this phase changed no application code.
+
+---
+
+## Phase 15 — Documentation, final implementation report and demo script
+
+### What changed
+
+- **`README.md` rewritten** against the code as it now is:
+  - four algorithms, including ML-DSA-65, and the **Node 24** requirement (ML-DSA needs its OpenSSL 3.5; the old README said Node 20);
+  - the ten-step verification with all four verdicts and every reason code;
+  - the timestamp-aware revocation policy, with the OmniTrust-specific rule marked as such;
+  - CMS export and the OpenSSL command, with the Ed25519 and ML-DSA limitation;
+  - checkpoints, anchoring, the Security Lab, benchmarks, `npm run ci` and `npm run e2e`;
+  - every environment variable;
+  - a corrected limitations section. It no longer claims there is no CRL, no rate limiting or only SameSite CSRF protection (security audit finding S5); it adds the anchoring, session, role-based access and dependency-scanning limits.
+- **`DEMO_SCRIPT.md` rewritten as 23 steps** in six parts, using the interface's exact labels. The revocation section now shows the timestamp-aware policy rather than hiding it:
+  - an ECDSA certificate revoked for `affiliationChanged` leaves its document **AUTHENTIC** (`SIGNED_BEFORE_REVOCATION`);
+  - an RSA certificate revoked for `keyCompromise` with no invalidity date makes its document **INVALID** (`COMPROMISE_TIME_UNKNOWN`).
+
+  The old script revoked with the form's default reason (`superseded`), which under the new policy would have left the document valid and contradicted the script. The new script requires a fresh setup and explains the symptom otherwise.
+- **`docs/final-implementation-report.md`**: 20 sections, each item marked IMPLEMENTED, PARTIAL, LIMITED BY LIBRARY or NOT IMPLEMENTED, with the evidence for each. It collects the 11 bugs found during the upgrade and everything not implemented.
+- **`PROGRESS.md`** keeps the original build record as written, with a closing section pointing to the upgrade log, final report, audit and current documentation, and noting which of its statements are historical.
+- **`docs/audit/02-security-audit.md`**: S5 marked fixed.
+- **`tests/ci/docs-claims.test.ts`** guards the documents against drift:
+  - every `npm run` command named in the README, demo script and report exists;
+  - every seeded filename they name is one the fixtures create;
+  - every local link resolves;
+  - the removed limitations do not reappear.
+
+### How the demo script's claims are backed
+
+- The revocation contrast (steps 14–17) is `tests/verification/timestamp-aware.test.ts`.
+- The OpenSSL CMS check (step 11) is exercised by the E2E run.
+- The Security Lab rewrite attack (step 21) is exercised by the Security Lab tests.
+- The seeded filenames, commands and links are checked by the docs test.
+- The script was not walked click by click in a browser in this phase; the individual screens were checked in Phases 4c–10.
+
+### Verification
+
+- **`npm run ci`: CI PASSED in 245 s**, all 11 steps. The suites were unit 219 passed and 1 skipped, integration 373, and security 111, for **703 passed, 1 skipped** in total (699 after Phase 14, plus the 4 documentation tests).
+
+---
+
+## Upgrade complete
+
+| Phase | Commit |
+| --- | --- |
+| 4b — RFC 3161 Time-Stamp Authority | `095f94f` |
+| 4c — Timestamp-aware verification | `ccd275f` |
+| 5 — CMS export | `9ba1d9d` |
+| 6 — Signed audit checkpoints | `bd1f29b` |
+| 7 — Merkle anchoring on a local chain | `96bf175` |
+| 8 — Security Lab | `890a617` |
+| 9 — Interface redesign | `3c06433` |
+| 10 — Statistical benchmarks, two timing bugs | `e18e720` |
+| 11 — Route-level tests, key-material leak fixed | `abd2d56` |
+| 12 — Local CI | `4f78fea` |
+| 13 — Security audit | `181babf` |
+| 14 — End-to-end regression | `542a09e` |
+| 15 — Documentation | this commit |
+
+Phases 0–4a and the ML-DSA addition (`663e26b`) precede this table; `git log` has them all. The final state of every feature is in [`docs/final-implementation-report.md`](final-implementation-report.md).

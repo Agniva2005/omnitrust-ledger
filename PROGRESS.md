@@ -314,3 +314,26 @@ Independent corroboration, none of it relying on this codebase agreeing with its
 - Document hashes match `sha256sum` computed outside the application.
 - The architectural boundary is enforced by a checker that is itself tested against probe
   files it must reject.
+
+---
+
+## After the original build: the upgrade
+
+This file records the original build (CLAUDE.md phases 0–10) and is kept as written. The project was then upgraded in fifteen further phases, which added:
+- ML-DSA-65;
+- RFC 3161 time-stamping and timestamp-aware revocation;
+- CA-signed CRLs;
+- CMS export;
+- signed audit checkpoints;
+- Merkle anchoring;
+- the Security Lab;
+- a redesigned interface;
+- statistical benchmarks;
+- route-level tests, local CI, an end-to-end regression, and a security audit.
+
+Some statements above describe the system as it was then; for example, "three algorithms" and "266 tests".
+
+- [`docs/upgrade-log.md`](docs/upgrade-log.md): per-phase record of the upgrade, with evidence, bugs found and corrections.
+- [`docs/final-implementation-report.md`](docs/final-implementation-report.md): the status of every feature at the end of the upgrade.
+- [`docs/audit/02-security-audit.md`](docs/audit/02-security-audit.md): the security audit.
+- [`README.md`](README.md) and [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md): current documentation.
