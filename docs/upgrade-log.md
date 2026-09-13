@@ -471,3 +471,55 @@ Algorithms are chosen from the registry and the CA policy, so the boundary check
   - `storage/lab/runs` was empty afterwards.
 - Browser, `/security-lab` as admin: running "Flip one bit of the encrypted blob" showed CONTROL HELD, the sandbox id marked deleted, and the unchanged-database note; no console errors.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+
+---
+
+## Phase 9 — Interface redesign around real evidence
+
+### Principle
+
+Every new view renders data the system actually holds, read at request time: registry metadata, database counts, parsed certificate bytes, the authenticated CRL, the audit log, or benchmark files measured on this machine. No figure is illustrative. Where a value is only what was stored (for example the latest CRL row, or anchors whose chain may be gone), the wording says so.
+
+### What changed
+
+- **Navigation**: grouped as Overview, Records, Trust, Integrity and Evaluation, with the current page highlighted (`aria-current`) and a sticky header.
+- **Dashboard** (`lib/dashboard/overview.ts`):
+  - counts of documents, signatures (time-stamped and with a CMS export) and certificates by status;
+  - distribution bars for document lifecycle states and signatures by algorithm;
+  - trust services: root CA, Time-Stamp Authority and the latest issued CRL with its freshness;
+  - integrity: audit entries, signed checkpoints, and entries since the latest checkpoint;
+  - anchoring, worded to point at the anchoring page for whether its chain still exists;
+  - the last eight verifications from the audit log, with VALID / INVALID / UNVERIFIABLE / ERROR kept distinct;
+  - recent activity and the user's capabilities.
+- **Algorithms page** (`/algorithms`):
+  - a comparison of every registered provider: class, security level, key and signature sizes, determinism, measured medians where `npm run benchmark` has produced them (otherwise "not measured"), and live certificate and signature counts;
+  - a detail card per algorithm: standards, implementation, quantum resistance, message processing, OIDs and CMS identifiers, and which independent check applies;
+  - a crypto-agility section naming the tests and checks that back the claim.
+- **Certificate explorer** (`/certificates/[id]`, `lib/pki/explorer.ts`; linked from the certificates table):
+  - trust chain: root CA to end-entity, each with a SHA-256 fingerprint, plus every validation check;
+  - fields parsed from the X.509 structure: subject, issuer, validity, the key algorithm identified from the key material, basic constraints, key usage, extended key usage, and the PEM;
+  - revocation read from the authenticated CRL, reported as UNAVAILABLE (never "not revoked") when the CRL cannot be authenticated;
+  - the key-lifecycle state machine with its current and legal next states, and the certificate's and key's history from the audit log;
+  - the signatures made with the key.
+- **Verification screen**: an evidence-chain strip (Certificate, Revocation, Time-stamp, Key, Signature, Content), each link coloured by its real step status, above the full ten-step list.
+- **Audit log**: the entries table is replaced by a timeline grouped by day and coloured by category (security, access, documents, PKI, integrity, lab), still showing each entry's chained hash prefix and details.
+- **Document versions** show which signature, algorithm and signer each version carries, or "unsigned".
+
+### Found during checking
+
+- The first dashboard wording said the anchored items were "on the local chain". After Phase 7's restart test that chain instance no longer exists, so the claim was untrue. It now links to the anchoring page, which reports the chain's actual state.
+- In a narrow browser pane the grouped navigation wraps onto several lines. A click computed from an earlier layout landed on a navigation link instead of the intended button; the check was repeated after scrolling the button into view. The wrap is functional but takes vertical space on small screens, and is left for a later responsive pass.
+
+### Verification
+
+- `npm test`: **658 passed, 1 skipped** across 45 files (652 after Phase 8). New tests:
+  - `tests/dashboard/overview.test.ts` builds a known state through the real services and checks every count, the recent verification's verdict and filename, and the trust-service and integrity figures;
+  - `tests/pki/explorer.test.ts` checks the fingerprint and serial against `node:crypto`'s independent X.509 parser, the extensions and chain, the lifecycle through revocation (issued, key ACTIVE, revoked, key REVOKED) with the CRL-derived reason, and UNAVAILABLE revocation for a forged CRL.
+- Browser, as admin against the development database:
+  - the dashboard showed 13 documents, 12 signatures (7 time-stamped, 4 with CMS), 12 certificates (8 active, 3 revoked, 1 expired), CRL #5, and recent verifications including `INVALID / CERTIFICATE_REVOKED` and `INVALID / HASH_MISMATCH`;
+  - the algorithms page listed four providers with measured medians for three and "not measured" for ML-DSA-65, which the saved benchmark file predates;
+  - the explorer for the Phase 4c key-compromise certificate showed the chain with fingerprints, "Not revoked" failing, CRL #5 `keyCompromise`, key state REVOKED (next RETIRED), and its four lifecycle events;
+  - verifying `phase4c-affiliation.txt` showed AUTHENTIC with all six evidence-chain links PASS, consistent with the ten steps;
+  - the audit timeline rendered;
+  - no console errors on any page.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.

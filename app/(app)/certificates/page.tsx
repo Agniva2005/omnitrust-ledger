@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { IssueCertificateForm } from "@/app/(app)/certificates/issue-form";
 import { RevokeButton } from "@/app/(app)/certificates/revoke-button";
@@ -108,7 +109,11 @@ export default async function CertificatesPage() {
               const validation = validationById.get(certificate.id);
               return (
                 <TableRow key={certificate.id}>
-                  <TableCell>{certificate.subject.email}</TableCell>
+                  <TableCell>
+                    <Link href={`/certificates/${certificate.id}`} className="font-medium hover:underline">
+                      {certificate.subject.email}
+                    </Link>
+                  </TableCell>
                   <TableCell>{orchestrator.displayName(certificate.algorithm)}</TableCell>
                   <TableCell>
                     <StatusBadge status={certificate.status} />

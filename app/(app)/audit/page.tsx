@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { IntegrityChecker } from "@/app/(app)/audit/integrity-checker";
+import { AuditTimeline } from "@/components/audit-timeline";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -103,57 +104,18 @@ export default async function AuditPage() {
         </CardContent>
       </Card>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Seq</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>Actor</TableHead>
-              <TableHead>Target</TableHead>
-              <TableHead>Details</TableHead>
-              <TableHead>Entry hash</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entries.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                  No audit entries yet.
-                </TableCell>
-              </TableRow>
-            )}
-            {entries.map((entry) => (
-              <TableRow key={entry.id}>
-                <TableCell className="font-mono text-xs">{entry.seq}</TableCell>
-                <TableCell>
-                  <Badge
-                    variant={
-                      entry.action.includes("FAILED") || entry.action.includes("REVOKED")
-                        ? "destructive"
-                        : "secondary"
-                    }
-                  >
-                    {entry.action}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {entry.actor?.email ?? "-"}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {entry.targetType}
-                </TableCell>
-                <TableCell className="max-w-md break-all font-mono text-xs text-muted-foreground">
-                  {entry.metadataJson}
-                </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">
-                  {entry.entryHash.slice(0, 12)}...
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Timeline</CardTitle>
+          <CardDescription>
+            The newest {entries.length} of {total} entries, grouped by day and coloured by category. Each shows the
+            first characters of its chained hash.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AuditTimeline entries={entries} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -241,6 +241,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
               <TableRow>
                 <TableHead>Version</TableHead>
                 <TableHead>SHA-256</TableHead>
+                <TableHead>Signature</TableHead>
                 <TableHead>Stored at</TableHead>
                 <TableHead>Created</TableHead>
               </TableRow>
@@ -250,6 +251,16 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                 <TableRow key={version.id}>
                   <TableCell>v{version.versionNumber}</TableCell>
                   <TableCell className="break-all font-mono text-xs">{version.hash}</TableCell>
+                  <TableCell className="text-xs">
+                    {(() => {
+                      const signature = signatures.find((candidate) => candidate.documentVersion.versionNumber === version.versionNumber);
+                      return signature ? (
+                        `${orchestrator.displayName(signature.algorithm)} by ${signature.signedBy.email}`
+                      ) : (
+                        <span className="text-muted-foreground">unsigned</span>
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {version.storagePath}
                   </TableCell>

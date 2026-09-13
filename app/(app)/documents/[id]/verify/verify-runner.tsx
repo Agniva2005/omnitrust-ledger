@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EvidenceChain } from "@/components/evidence-chain";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 type StepStatus = "PASS" | "FAIL" | "UNAVAILABLE" | "SKIPPED";
@@ -165,6 +166,8 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
               <TrustRow label="Policy decision" value={result.trust.revocationDecision} />
               <TrustRow label="Policy" value={result.trust.policy} />
             </div>
+
+            <EvidenceChain steps={result.steps.filter((step) => !step.id.includes(":"))} />
 
             <ol className="space-y-2">
               {result.steps.map((step) => (
