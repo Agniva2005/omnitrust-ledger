@@ -8,13 +8,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 type StepStatus = "PASS" | "FAIL" | "UNAVAILABLE" | "SKIPPED";
 
-type VerificationStep = { step: string; status: StepStatus; passed: boolean; detail?: string };
+type VerificationStep = {
+  id: string;
+  step: string;
+  status: StepStatus;
+  passed: boolean;
+  optional?: boolean;
+  detail?: string;
+};
 
 type Outcome = "VALID" | "INVALID" | "UNVERIFIABLE" | "ERROR";
+
+type TrustSummary = {
+  claimedSigningTime: string;
+  trustedTime: string | null;
+  timestampAccuracyMs: number | null;
+  timestampAuthority: string | null;
+  certificateEvaluatedAt: string | null;
+  certificateExpiredSince: boolean;
+  revocation: { reason: string; revokedAt: string; invalidityDate: string | null } | null;
+  revocationDecision: string | null;
+  policy: string;
+};
 
 type VerificationResult = {
   outcome: Outcome;
   reason?: string;
+  explanation: string;
+  trust: TrustSummary;
   steps: VerificationStep[];
 };
 
@@ -22,11 +43,7 @@ const OUTCOME_DISPLAY: Record<
   Outcome,
   { label: string; variant: "success" | "destructive" | "outline"; summary: string }
 > = {
-  VALID: {
-    label: "AUTHENTIC",
-    variant: "success",
-    summary: "Every check passed.",
-  },
+  VALID: { label: "AUTHENTIC", variant: "success", summary: "Every required check passed." },
   INVALID: {
     label: "INVALID",
     variant: "destructive",
@@ -45,30 +62,21 @@ const OUTCOME_DISPLAY: Record<
   },
 };
 
-const REASON_EXPLANATIONS: Record<string, string> = {
-  HASH_MISMATCH:
-    "The bytes stored for this document no longer hash to the value that was signed. The content changed after signing.",
-  SIGNATURE_INVALID:
-    "The signature does not verify under the public key in the certificate for this algorithm.",
-  CERTIFICATE_EXPIRED: "The signing certificate is outside its validity period.",
-  CERTIFICATE_REVOKED: "The signing certificate has been revoked.",
-  CERTIFICATE_CHAIN_INVALID:
-    "The certificate does not chain to this installation's CA, does not carry a document-signing profile, or its stored metadata disagrees with the certificate itself.",
-  STORAGE_UNAVAILABLE:
-    "The stored bytes could not be read, so the content could not be checked.",
-  CERTIFICATE_NOT_FOUND:
-    "The certificate this signature refers to cannot be found, so the signer cannot be established.",
-  UNSUPPORTED_ALGORITHM:
-    "This installation has no provider registered for the signature's algorithm.",
-  INTERNAL_ERROR: "The verifier encountered an internal fault and could not finish.",
-};
-
 const STEP_STYLE: Record<StepStatus, string> = {
   PASS: "text-success",
   FAIL: "text-destructive",
   UNAVAILABLE: "text-amber-600",
   SKIPPED: "text-muted-foreground",
 };
+
+function TrustRow({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="flex flex-wrap gap-x-2">
+      <span className="text-muted-foreground">{label}:</span>
+      <span className="break-all font-mono text-xs">{value ?? "none"}</span>
+    </div>
+  );
+}
 
 export function VerifyRunner({ documentId }: { documentId: string }) {
   const router = useRouter();
@@ -105,7 +113,8 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
       <CardHeader>
         <CardTitle>Verification workflow</CardTitle>
         <CardDescription>
-          Steps 1-8 of Figure 8, in order, each with its own result.
+          Ten steps in order, each with its own result. Certificate validity and revocation are
+          judged at the time a trusted time-stamp proves the signature existed.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -133,26 +142,44 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
             </div>
 
             <p className="max-w-prose text-sm text-muted-foreground">{display.summary}</p>
+            <p className="max-w-prose rounded-md border p-3 text-sm">{result.explanation}</p>
 
-            {result.reason && (
-              <p className="max-w-prose rounded-md border p-3 text-sm">
-                {REASON_EXPLANATIONS[result.reason] ?? result.reason}
-              </p>
-            )}
+            <div className="space-y-1 rounded-md border p-3 text-sm">
+              <div className="font-medium">Time and revocation</div>
+              <TrustRow label="Trusted time-stamp" value={result.trust.trustedTime} />
+              <TrustRow label="Time-Stamp Authority" value={result.trust.timestampAuthority} />
+              <TrustRow label="Server clock at signing (not evidence)" value={result.trust.claimedSigningTime} />
+              <TrustRow label="Certificate judged at" value={result.trust.certificateEvaluatedAt} />
+              <TrustRow
+                label="Revocation"
+                value={
+                  result.trust.revocation
+                    ? `${result.trust.revocation.reason} at ${result.trust.revocation.revokedAt}${
+                        result.trust.revocation.invalidityDate
+                          ? `, invalid from ${result.trust.revocation.invalidityDate}`
+                          : ""
+                      }`
+                    : "not revoked"
+                }
+              />
+              <TrustRow label="Policy decision" value={result.trust.revocationDecision} />
+              <TrustRow label="Policy" value={result.trust.policy} />
+            </div>
 
             <ol className="space-y-2">
-              {result.steps.map((step, index) => (
+              {result.steps.map((step) => (
                 <li
-                  key={`${index}-${step.step}`}
+                  key={step.id}
                   className={`flex gap-3 rounded-md border px-3 py-2 text-sm ${
-                    step.step.startsWith("4.") ? "ml-6 border-dashed" : ""
+                    step.id.startsWith("certificate-validity:") ? "ml-6 border-dashed" : ""
                   }`}
                 >
                   <span className={`w-24 shrink-0 font-mono text-xs ${STEP_STYLE[step.status]}`}>
                     {step.status}
+                    {step.optional && step.status !== "PASS" ? " (optional)" : ""}
                   </span>
                   <span className="min-w-0">
-                    <span className="font-medium">{step.step.replace(/^4\./, "")}</span>
+                    <span className="font-medium">{step.step}</span>
                     {step.detail && (
                       <span className="block break-all font-mono text-xs text-muted-foreground">
                         {step.detail}

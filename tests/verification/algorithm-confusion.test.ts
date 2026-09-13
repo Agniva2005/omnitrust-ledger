@@ -5,7 +5,7 @@
 // accepted a genuine ECDSA signature made with an ECDSA key, and the ECDSA provider
 // accepted an RSA PKCS#1 v1.5 signature. A document signed under ECDSA whose signature and
 // certificate rows were relabelled "RSA" therefore verified as an authentic RSA-PSS
-// signature. Two independent controls now refuse it: verification step 5 identifies the
+// signature. Two independent controls now refuse it: verification identifies the
 // algorithm from the key material, and each provider refuses keys that are not its own.
 import { sign as opensslSign } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -66,10 +66,10 @@ describe("a genuine signature relabelled as a different algorithm", () => {
     const result = await verifyDocument(verifier, document.id);
     expect(result.outcome).toBe("INVALID");
     expect(result.reason).toBe("ALGORITHM_MISMATCH");
-    expect(result.steps.find((step) => step.step.startsWith("5."))?.detail).toContain(
+    expect(result.steps.find((step) => step.id === "public-key")?.detail).toContain(
       "carries a ECDSA_P256 key",
     );
-    expect(result.steps.find((step) => step.step.startsWith("7."))?.status).toBe("SKIPPED");
+    expect(result.steps.find((step) => step.id === "signature-verification")?.status).toBe("SKIPPED");
   });
 });
 

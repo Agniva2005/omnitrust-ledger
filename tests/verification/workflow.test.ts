@@ -1,5 +1,6 @@
-// Phase 6 DoD: every failure below is produced by a real alteration to real data and
-// verified with real cryptography. Nothing in this file mocks a crypto operation.
+// Phase 6 DoD, carried forward: every failure below is produced by a real alteration to
+// real data and verified with real cryptography. Nothing in this file mocks a crypto
+// operation. Time-aware revocation cases live in timestamp-aware.test.ts.
 import fs from "node:fs/promises";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AuthorizationError, type Actor } from "@/lib/auth/rbac";
@@ -65,9 +66,11 @@ async function uploadAndSign(
   return document;
 }
 
-function statusOf(result: VerificationResult, prefix: string) {
-  return result.steps.find((step) => step.step.startsWith(prefix))?.status;
+function stepOf(result: VerificationResult, id: string) {
+  return result.steps.find((step) => step.id === id);
 }
+
+const statusOf = (result: VerificationResult, id: string) => stepOf(result, id)?.status;
 
 describe("the happy path", () => {
   it.each(ALGORITHMS)("returns VALID for an untouched %s-signed document", async (algorithm) => {
@@ -77,18 +80,19 @@ describe("the happy path", () => {
     expect(result.outcome).toBe("VALID");
     expect(result.reason).toBeUndefined();
     expect(result.steps.every((step) => step.passed)).toBe(true);
+    expect(result.trust.trustedTime).not.toBeNull();
   });
 
-  it("executes all eight numbered steps in order", async () => {
+  it("executes all ten numbered steps in order", async () => {
     const document = await uploadAndSign("ED25519");
     const result = await verifyDocument(verifier, document.id);
 
     const numbered = result.steps
-      .map((step) => step.step)
-      .filter((step) => /^[1-8]\. /.test(step))
-      .map((step) => Number(step[0]));
+      .map((step) => /^(\d+)\. /.exec(step.step)?.[1])
+      .filter((value): value is string => value !== undefined)
+      .map(Number);
 
-    expect(numbered).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(numbered).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it("advances the lifecycle to VERIFIED (Figure 4)", async () => {
@@ -105,6 +109,13 @@ describe("the happy path", () => {
     const document = await uploadAndSign("ECDSA_P256");
     expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
     expect((await verifyDocument(verifier, document.id)).outcome).toBe("VALID");
+  });
+
+  it("explains a valid result in words", async () => {
+    const document = await uploadAndSign("ECDSA_P256");
+    const result = await verifyDocument(verifier, document.id);
+    expect(result.explanation).toMatch(/unchanged/);
+    expect(result.explanation).toMatch(/trusted time-stamp/);
   });
 });
 
@@ -124,15 +135,15 @@ describe("Phase 6 case 1: a flipped byte in the stored blob", () => {
     expect(result.outcome).toBe("INVALID");
     expect(result.reason).toBe("HASH_MISMATCH");
 
-    const step6 = result.steps.find((step) => step.step.startsWith("6."));
-    expect(step6?.passed).toBe(false);
-    expect(step6?.detail).toMatch(/AES-256-GCM integrity check/);
+    const recompute = stepOf(result, "recompute-hash");
+    expect(recompute?.passed).toBe(false);
+    expect(recompute?.detail).toMatch(/AES-256-GCM integrity check/);
   });
 
   it("reports HASH_MISMATCH when different plaintext is validly re-encrypted", async () => {
     // The stronger case: an attacker who also holds the storage key. The blob decrypts
-    // cleanly, so the AES-GCM tag passes and the hash comparison in step 8 is what
-    // actually catches the substitution.
+    // cleanly, so the AES-GCM tag passes and the hash comparison is what actually catches
+    // the substitution.
     const document = await uploadAndSign("RSA", "The agreed price is 1,000.");
     const version = await prisma.documentVersion.findFirstOrThrow({
       where: { documentId: document.id },
@@ -146,12 +157,12 @@ describe("Phase 6 case 1: a flipped byte in the stored blob", () => {
     const result = await verifyDocument(verifier, document.id);
     expect(result.outcome).toBe("INVALID");
     expect(result.reason).toBe("HASH_MISMATCH");
+    expect(result.explanation).toMatch(/content differs/);
 
-    // Step 6 succeeded -- the bytes decrypted -- and step 8 is the one that failed.
-    expect(result.steps.find((step) => step.step.startsWith("6."))?.passed).toBe(true);
-    const step8 = result.steps.find((step) => step.step.startsWith("8."));
-    expect(step8?.passed).toBe(false);
-    expect(step8?.detail).toContain(version.hash);
+    expect(statusOf(result, "recompute-hash")).toBe("PASS");
+    const comparison = stepOf(result, "hash-comparison");
+    expect(comparison?.passed).toBe(false);
+    expect(comparison?.detail).toContain(version.hash);
   });
 
   it("reports HASH_MISMATCH when a single character of the plaintext changes", async () => {
@@ -168,50 +179,48 @@ describe("Phase 6 case 1: a flipped byte in the stored blob", () => {
 });
 
 describe("Phase 6 case 2: an expired certificate", () => {
-  it("reports CERTIFICATE_EXPIRED", async () => {
-    const certificate = await issueCertificate({
+  async function expiringCertificate(algorithm: Algorithm) {
+    return issueCertificate({
       actor: signer,
-      algorithm: "ED25519",
+      algorithm,
       notBefore: new Date(Date.now() - 60_000),
       notAfter: new Date(Date.now() + 4_000),
     });
+  }
 
+  it("leaves a signature VALID when a trusted time-stamp shows it was made while the certificate was valid", async () => {
+    const certificate = await expiringCertificate("ED25519");
     const document = await uploadAndSign("ED25519", "Signed just before expiry.", certificate.id);
 
-    // Evaluate after the window closes, rather than sleeping.
-    const result = await verifyDocument(verifier, document.id, {
-      at: new Date(Date.now() + 60_000),
-    });
+    // Verify after the window closes, rather than sleeping.
+    const result = await verifyDocument(verifier, document.id, { at: new Date(Date.now() + 60_000) });
 
-    expect(result.outcome).toBe("INVALID");
-    expect(result.reason).toBe("CERTIFICATE_EXPIRED");
-    expect(
-      result.steps.find((step) => step.step.includes("Within validity period"))?.passed,
-    ).toBe(false);
+    expect(result.outcome).toBe("VALID");
+    expect(result.trust.certificateExpiredSince).toBe(true);
+    expect(result.explanation).toMatch(/since expired/);
   });
 
-  it("still verifies the cryptography correctly while reporting the expiry", async () => {
-    const certificate = await issueCertificate({
-      actor: signer,
-      algorithm: "RSA",
-      notBefore: new Date(Date.now() - 60_000),
-      notAfter: new Date(Date.now() + 4_000),
-    });
-    const document = await uploadAndSign("RSA", "Expired but untampered.", certificate.id);
-
-    const result = await verifyDocument(verifier, document.id, {
-      at: new Date(Date.now() + 60_000),
+  it("reports EXPIRED_NO_PROOF_OF_EXISTENCE, not INVALID, when there is no time-stamp", async () => {
+    const certificate = await expiringCertificate("RSA");
+    const document = await uploadAndSign("RSA", "Expired and never time-stamped.", certificate.id);
+    await prisma.signature.updateMany({
+      where: { documentVersion: { documentId: document.id } },
+      data: { timestampToken: null, timestampedAt: null },
     });
 
-    expect(result.reason).toBe("CERTIFICATE_EXPIRED");
-    // The signature itself is fine; only the certificate's window has closed.
-    expect(result.steps.find((step) => step.step.startsWith("7."))?.passed).toBe(true);
-    expect(result.steps.find((step) => step.step.startsWith("8."))?.passed).toBe(true);
+    const result = await verifyDocument(verifier, document.id, { at: new Date(Date.now() + 60_000) });
+
+    expect(result.outcome).toBe("UNVERIFIABLE");
+    expect(result.reason).toBe("EXPIRED_NO_PROOF_OF_EXISTENCE");
+    expect(statusOf(result, "certificate-validity")).toBe("UNAVAILABLE");
+    // The cryptography itself is fine; only the time question is open.
+    expect(statusOf(result, "signature-verification")).toBe("PASS");
+    expect(statusOf(result, "hash-comparison")).toBe("PASS");
   });
 });
 
 describe("Phase 6 case 3: a revoked certificate", () => {
-  it("verifies before revocation and reports CERTIFICATE_REVOKED afterwards", async () => {
+  it("verifies before revocation and is INVALID after a key compromise with no invalidity date", async () => {
     const certificate = await issueCertificate({ actor: signer, algorithm: "ECDSA_P256" });
     const document = await uploadAndSign("ECDSA_P256", "Signed, then revoked.", certificate.id);
 
@@ -227,11 +236,12 @@ describe("Phase 6 case 3: a revoked certificate", () => {
     const result = await verifyDocument(verifier, document.id);
     expect(result.outcome).toBe("INVALID");
     expect(result.reason).toBe("CERTIFICATE_REVOKED");
+    expect(result.trust.revocationDecision).toBe("COMPROMISE_TIME_UNKNOWN");
 
-    const revocationStep = result.steps.find((step) => step.step.includes("Not revoked"));
-    expect(revocationStep?.passed).toBe(false);
-    expect(revocationStep?.detail).toContain("keyCompromise");
-    expect(revocationStep?.detail).toContain("Key compromise (test)");
+    const revocation = stepOf(result, "revocation");
+    expect(revocation?.status).toBe("FAIL");
+    expect(revocation?.detail).toContain("keyCompromise");
+    expect(revocation?.detail).toMatch(/CRL #\d+/);
   });
 });
 
@@ -252,9 +262,11 @@ describe("Phase 6 case 4: corrupted signature bytes", () => {
     const result = await verifyDocument(verifier, document.id);
     expect(result.outcome).toBe("INVALID");
     expect(result.reason).toBe("SIGNATURE_INVALID");
-    expect(result.steps.find((step) => step.step.startsWith("7."))?.passed).toBe(false);
+    expect(statusOf(result, "signature-verification")).toBe("FAIL");
+    // The time-stamp was over the original signature value, so it no longer matches either.
+    expect(statusOf(result, "timestamp")).toBe("FAIL");
     // The document itself was not touched, so the hash comparison still passes.
-    expect(result.steps.find((step) => step.step.startsWith("8."))?.passed).toBe(true);
+    expect(statusOf(result, "hash-comparison")).toBe("PASS");
   });
 
   it("reports SIGNATURE_INVALID for a signature made over a different document", async () => {
@@ -299,9 +311,9 @@ describe("Phase 6 case 5: substituting another algorithm's public key", () => {
       const result = await verifyDocument(verifier, document.id);
       expect(result.outcome).toBe("INVALID");
       expect(result.reason).toBe("ALGORITHM_MISMATCH");
-      expect(statusOf(result, "5.")).toBe("FAIL");
+      expect(statusOf(result, "public-key")).toBe("FAIL");
       // No cryptographic operation is attempted with a key of the wrong algorithm.
-      expect(statusOf(result, "7.")).toBe("SKIPPED");
+      expect(statusOf(result, "signature-verification")).toBe("SKIPPED");
     },
   );
 
@@ -320,9 +332,7 @@ describe("Phase 6 case 5: substituting another algorithm's public key", () => {
 
     const result = await verifyDocument(verifier, document.id);
     expect(result.reason).toBe("ALGORITHM_MISMATCH");
-    expect(result.steps.find((step) => step.step.startsWith("5."))?.detail).toContain(
-      "carries a ED25519 key",
-    );
+    expect(stepOf(result, "public-key")?.detail).toContain("carries a ED25519 key");
   });
 
   it("still fails cryptographically when every label is forged to agree", async () => {
@@ -340,8 +350,8 @@ describe("Phase 6 case 5: substituting another algorithm's public key", () => {
     const result = await verifyDocument(verifier, document.id);
     expect(result.outcome).toBe("INVALID");
     expect(result.reason).toBe("SIGNATURE_INVALID");
-    expect(statusOf(result, "5.")).toBe("PASS");
-    expect(statusOf(result, "7.")).toBe("FAIL");
+    expect(statusOf(result, "public-key")).toBe("PASS");
+    expect(statusOf(result, "signature-verification")).toBe("FAIL");
   });
 });
 
@@ -354,9 +364,9 @@ describe("reason precedence", () => {
     await writeBlob(version.storagePath, Buffer.from("Replaced text."));
 
     const result = await verifyDocument(verifier, document.id);
-    // Both step 7 and step 8 fail; the reported reason is the more precise one.
-    expect(result.steps.find((step) => step.step.startsWith("7."))?.passed).toBe(false);
-    expect(result.steps.find((step) => step.step.startsWith("8."))?.passed).toBe(false);
+    // Both the signature and the hash comparison fail; the reported reason is the more precise one.
+    expect(statusOf(result, "signature-verification")).toBe("FAIL");
+    expect(statusOf(result, "hash-comparison")).toBe("FAIL");
     expect(result.reason).toBe("HASH_MISMATCH");
   });
 
@@ -368,11 +378,11 @@ describe("reason precedence", () => {
       where: { documentId: document.id },
     });
     await writeBlob(version.storagePath, Buffer.from("Tampered as well."));
-    await revokeCertificate({ actor: admin, certificateId: certificate.id });
+    await revokeCertificate({ actor: admin, certificateId: certificate.id, reason: "keyCompromise" });
 
     const result = await verifyDocument(verifier, document.id);
     expect(result.reason).toBe("CERTIFICATE_REVOKED");
-    expect(result.steps.find((step) => step.step.startsWith("8."))?.passed).toBe(false);
+    expect(statusOf(result, "hash-comparison")).toBe("FAIL");
   });
 });
 
@@ -407,7 +417,7 @@ describe("independence from the key-pair record", () => {
     const document = await uploadAndSign("ED25519", "Certificate is the source of truth.");
 
     // Corrupt the KeyPair row's copy of the public key. Verification must be unaffected,
-    // because step 5 extracts the key from the certificate.
+    // because the key is extracted from the certificate.
     const signature = await prisma.signature.findFirstOrThrow({
       where: { documentVersion: { documentId: document.id } },
       include: { certificate: true },

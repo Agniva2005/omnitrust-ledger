@@ -1,5 +1,5 @@
-// PKI layer: certificate validation. This is step 4 of the Figure 8 verification
-// workflow, kept separate so it can be exercised on its own.
+// PKI layer: certificate validation. Used on its own (signing, the certificates page) and
+// as the certificate step of the verification workflow.
 import type { Certificate } from "@prisma/client";
 import * as x509 from "@peculiar/x509";
 import { caCertificate, getRootCa } from "@/lib/pki/ca";
@@ -19,7 +19,20 @@ export type ValidationCheck = {
 export type CertificateValidation = {
   valid: boolean;
   reason?: CertificateFailureReason;
+  /** Where the evaluation instant falls relative to the certificate's validity period. */
+  window: "BEFORE" | "WITHIN" | "AFTER" | null;
   checks: ValidationCheck[];
+};
+
+export type ValidateOptions = {
+  /** Instant to evaluate validity at. Defaults to now. */
+  at?: Date;
+  /**
+   * "check" (default) treats a currently revoked certificate as invalid, which is right for
+   * deciding whether a certificate may be used now. The verification workflow passes "skip"
+   * and evaluates revocation itself against the signed CRL and the signature's trusted time.
+   */
+  revocation?: "check" | "skip";
 };
 
 function message(error: unknown): string {
@@ -28,13 +41,14 @@ function message(error: unknown): string {
 
 /**
  * Validates the chain (including the issuer's own CA profile and validity), the
- * end-entity profile, the validity period and revocation status, in that order. Every
- * check is recorded even after one fails. A certificate that is both expired and revoked
- * reports CERTIFICATE_EXPIRED, because expiry is checked first; both appear in `checks`.
+ * end-entity profile, the validity period and, unless skipped, revocation status, in that
+ * order. Every check is recorded even after one fails. A certificate that is both expired
+ * and revoked reports CERTIFICATE_EXPIRED, because expiry is checked first; both appear in
+ * `checks`.
  */
 export async function validateCertificate(
   certificate: Certificate,
-  options: { at?: Date } = {},
+  options: ValidateOptions = {},
 ): Promise<CertificateValidation> {
   const at = options.at ?? new Date();
   const checks: ValidationCheck[] = [];
@@ -54,7 +68,7 @@ export async function validateCertificate(
     parsed = parseCertificate(certificate.certPem);
   } catch (error) {
     checks.push({ step: "Certificate parses as X.509", passed: false, detail: message(error) });
-    return { valid: false, reason: "CERTIFICATE_CHAIN_INVALID", checks };
+    return { valid: false, reason: "CERTIFICATE_CHAIN_INVALID", window: null, checks };
   }
   checks.push({ step: "Certificate parses as X.509", passed: true, detail: parsed.subject });
 
@@ -130,33 +144,35 @@ export async function validateCertificate(
     : "CERTIFICATE_CHAIN_INVALID";
 
   // --- Validity period ---
-  const withinWindow = at >= parsed.notBefore && at <= parsed.notAfter;
+  const window = at < parsed.notBefore ? "BEFORE" : at > parsed.notAfter ? "AFTER" : "WITHIN";
   checks.push({
     step: "Within validity period",
-    passed: withinWindow,
-    detail: `${parsed.notBefore.toISOString()} to ${parsed.notAfter.toISOString()}`,
+    passed: window === "WITHIN",
+    detail: `${parsed.notBefore.toISOString()} to ${parsed.notAfter.toISOString()}, evaluated at ${at.toISOString()}`,
   });
-  if (!withinWindow && !reason) reason = "CERTIFICATE_EXPIRED";
+  if (window !== "WITHIN" && !reason) reason = "CERTIFICATE_EXPIRED";
 
-  // --- Revocation ---
-  const revoked = certificate.status === "REVOKED";
-  checks.push({
-    step: "Not revoked",
-    passed: !revoked,
-    detail: revoked
-      ? [
-          `revoked ${certificate.revokedAt?.toISOString() ?? "at an unrecorded time"}`,
-          `reason ${certificate.revocationReason ?? "unspecified"}`,
-          certificate.invalidityDate
-            ? `invalid from ${certificate.invalidityDate.toISOString()}`
-            : null,
-          certificate.revocationComment,
-        ]
-          .filter(Boolean)
-          .join(", ")
-      : undefined,
-  });
-  if (revoked && !reason) reason = "CERTIFICATE_REVOKED";
+  // --- Revocation, as currently recorded ---
+  if (options.revocation !== "skip") {
+    const revoked = certificate.status === "REVOKED";
+    checks.push({
+      step: "Not revoked",
+      passed: !revoked,
+      detail: revoked
+        ? [
+            `revoked ${certificate.revokedAt?.toISOString() ?? "at an unrecorded time"}`,
+            `reason ${certificate.revocationReason ?? "unspecified"}`,
+            certificate.invalidityDate
+              ? `invalid from ${certificate.invalidityDate.toISOString()}`
+              : null,
+            certificate.revocationComment,
+          ]
+            .filter(Boolean)
+            .join(", ")
+        : undefined,
+    });
+    if (revoked && !reason) reason = "CERTIFICATE_REVOKED";
+  }
 
-  return { valid: reason === undefined, reason, checks };
+  return { valid: reason === undefined, reason, window, checks };
 }

@@ -60,8 +60,8 @@ async function signedDocument(contents: string, certificate = certificateId) {
   return { document, version };
 }
 
-function statusOf(result: VerificationResult, prefix: string) {
-  return result.steps.find((step) => step.step.startsWith(prefix))?.status;
+function statusOf(result: VerificationResult, id: string) {
+  return result.steps.find((step) => step.id === id)?.status;
 }
 
 describe("VALID", () => {
@@ -72,6 +72,20 @@ describe("VALID", () => {
     expect(result.outcome).toBe("VALID");
     expect(result.reason).toBeUndefined();
     expect(result.steps.every((step) => step.status === "PASS" && step.passed)).toBe(true);
+  });
+
+  it("allows only optional steps not to pass: a signature without a time-stamp is still VALID", async () => {
+    const { document } = await signedDocument("Signed before time-stamping existed.");
+    await prisma.signature.updateMany({
+      where: { documentVersion: { documentId: document.id } },
+      data: { timestampToken: null, timestampedAt: null },
+    });
+
+    const result = await verifyDocument(verifier, document.id);
+    expect(result.outcome).toBe("VALID");
+    const timestamp = result.steps.find((step) => step.id === "timestamp");
+    expect(timestamp).toMatchObject({ status: "SKIPPED", optional: true });
+    expect(result.explanation).toMatch(/no trusted time-stamp/);
   });
 });
 
@@ -84,9 +98,9 @@ describe("UNVERIFIABLE: missing evidence is not evidence of tampering", () => {
 
     expect(result.outcome).toBe("UNVERIFIABLE");
     expect(result.reason).toBe("STORAGE_UNAVAILABLE");
-    expect(statusOf(result, "6.")).toBe("UNAVAILABLE");
-    expect(statusOf(result, "7.")).toBe("SKIPPED");
-    expect(statusOf(result, "8.")).toBe("SKIPPED");
+    expect(statusOf(result, "recompute-hash")).toBe("UNAVAILABLE");
+    expect(statusOf(result, "signature-verification")).toBe("SKIPPED");
+    expect(statusOf(result, "hash-comparison")).toBe("SKIPPED");
     // Nothing is marked as a failure: no check found anything wrong.
     expect(result.steps.some((step) => step.status === "FAIL")).toBe(false);
   });
@@ -102,7 +116,7 @@ describe("UNVERIFIABLE: missing evidence is not evidence of tampering", () => {
 
     expect(result.outcome).toBe("UNVERIFIABLE");
     expect(result.reason).toBe("UNSUPPORTED_ALGORITHM");
-    expect(statusOf(result, "7.")).toBe("UNAVAILABLE");
+    expect(statusOf(result, "signature-verification")).toBe("UNAVAILABLE");
   });
 
   it("does not advance the document lifecycle to VERIFIED", async () => {
@@ -138,7 +152,7 @@ describe("INVALID outranks UNVERIFIABLE", () => {
     const certificate = await issueCertificate({ actor: signer, algorithm: "ECDSA_P256" });
     const { document, version } = await signedDocument("Revoked and unreadable.", certificate.id);
     await fs.rm(absolutePath(version.storagePath));
-    await revokeCertificate({ actor: admin, certificateId: certificate.id });
+    await revokeCertificate({ actor: admin, certificateId: certificate.id, reason: "keyCompromise" });
 
     const result = await verifyDocument(verifier, document.id);
 

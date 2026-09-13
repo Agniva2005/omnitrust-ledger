@@ -59,7 +59,9 @@ beforeAll(async () => {
   await revokeCertificate({
     actor: admin,
     certificateId: certificate.id,
-    reason: "superseded",
+    // A compromise with no invalidity date invalidates the signature regardless of timing,
+    // which keeps this sequence deterministic under timestamp-aware revocation.
+    reason: "keyCompromise",
     comment: "Demo revocation",
   });
   await verifyDocument(admin, good.id);

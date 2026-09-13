@@ -226,3 +226,36 @@ Phase 4 is split into three commits: 4a (revocation reasons and CRLs, this entry
 - Automated OpenSSL CLI checks (3.2.4): `openssl ts -verify` accepts a stored token against the time-stamped data and rejects altered data; an `openssl ts -query` sent to the HTTP endpoint returns `Status: Granted` with the nonce echoed, and `openssl ts -verify -queryfile` reports `Verification: OK`.
 - Over real HTTP against `npm run dev`: a document uploaded and signed through the API stored a 1117-byte token that verifies `VALID` in-app and `Verification: OK` in OpenSSL against the signature value, with a matching `TIMESTAMP_ISSUED` audit entry; `openssl ts -query` → `curl POST /api/tsa` → `openssl ts -verify -queryfile` reports `Verification: OK` with the full 128-bit policy OID; the endpoint refuses a cross-site POST (403) and an unauthenticated one (401).
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`: clean.
+
+---
+
+## Phase 4c — Timestamp-aware verification
+
+### What changed
+
+- **Verification uses trusted time instead of the server clock.** The signature's RFC 3161 token is verified over SHA-256 of the signature value; a VALID token's `genTime` (with its stated accuracy) is the proof of existence. The certificate's chain, profile and validity period are judged **at that time**, so a certificate that later expires does not invalidate a signature made while it was valid.
+- **Revocation comes from the CA's signed CRL, not the database row.** Verification authenticates the current CRL (signature, issuer, currency) and applies `evaluateRevocation()` (policy `omnitrust-timestamp-aware-revocation/1`, Phase 4a). An unauthenticated or unreadable CRL makes revocation status UNAVAILABLE, never "not revoked".
+- **Ten steps with stable ids** (`document`, `signature`, `certificate`, `timestamp`, `certificate-validity`, `revocation`, `public-key`, `recompute-hash`, `signature-verification`, `hash-comparison`) instead of matching on numbered labels. The time-stamp step is *optional*: a signature without a token (made before Phase 4b, or while the authority was unavailable) can still be VALID, but gets no benefit of the doubt when its certificate is later revoked or expires.
+- **New reasons, kept in their verdict classes:** `TIMESTAMP_INVALID` (INVALID: a token that does not match this signature, or is corrupted); `REVOCATION_STATUS_UNAVAILABLE`, `REVOKED_NO_PROOF_OF_EXISTENCE` and `EXPIRED_NO_PROOF_OF_EXISTENCE` (UNVERIFIABLE, following ETSI EN 319 102-1's no-POE indications rather than declaring such signatures invalid).
+- **The result explains itself**: an `explanation` sentence and a `trust` summary (server-clock signing time labelled as not evidence, trusted time and authority, the instant the certificate was judged at, whether it has since expired, the CRL revocation entry, the policy decision and policy id). The verify screen renders both. Audit entries for `DOCUMENT_VERIFIED` now record the trusted time and the revocation decision.
+- **`validateCertificate()` gains `revocation: "check" | "skip"`** and reports where the evaluation instant falls in the validity window. Signing and the certificates page keep the default, so a currently revoked certificate still cannot sign and is still flagged; only verification skips it and decides revocation itself.
+
+### Decisions recorded
+
+- A revoked-then-verified sequence in the existing audit-trail test and the Phase 6 "revoked certificate" case now revoke for `keyCompromise` without an invalidity date. Under the new policy a `superseded` revocation after a time-stamped signature correctly leaves it VALID, so those tests' intent ("revocation defeats the signature") is expressed with the reason that has that meaning.
+- The Phase 6 "expired certificate" case is now two cases: expired after a time-stamped signature → VALID; expired with no time-stamp → UNVERIFIABLE (`EXPIRED_NO_PROOF_OF_EXISTENCE`). Neither is `CERTIFICATE_EXPIRED`, which remains for a signature proven to have been made outside the validity period.
+- Precedence: a hash mismatch outranks an invalid signature, which outranks an invalid time-stamp, because changing the bytes breaks the signature and changing the signature breaks its time-stamp; the earliest finding is the precise diagnosis.
+
+### Verification
+
+- `npm test`: **537 passed, 1 skipped** across 38 files (525 after Phase 4b). New `tests/verification/timestamp-aware.test.ts`, all with real signatures, real tokens and real CA-signed CRLs:
+  - revoked for `affiliationChanged` after a time-stamped signature → VALID, `SIGNED_BEFORE_REVOCATION`, and the explanation says why;
+  - `keyCompromise` with no invalidity date → INVALID, `COMPROMISE_TIME_UNKNOWN`;
+  - `keyCompromise` with an invalidity date after the signature → VALID; before it → INVALID;
+  - a genuine token obtained **after** the revocation does not rescue the signature (`SIGNED_AFTER_REVOCATION`);
+  - a token from another signature, or a corrupted token → INVALID, `TIMESTAMP_INVALID`, while the signature and hash steps still pass;
+  - no token, then revoked → UNVERIFIABLE, `REVOKED_NO_PROOF_OF_EXISTENCE`;
+  - a tampered stored CRL → UNVERIFIABLE, `REVOCATION_STATUS_UNAVAILABLE`.
+- Over real HTTP against `npm run dev`: two ECDSA certificates issued, two documents uploaded and signed through the API, both VALID with a trusted time; after revoking one for `affiliationChanged` and the other for `keyCompromise` (CRL #5), the first stays VALID (`SIGNED_BEFORE_REVOCATION`) and the second is INVALID (`COMPROMISE_TIME_UNKNOWN`, only the revocation step failing).
+- Browser, `/documents/<id>/verify` for the `affiliationChanged` document: AUTHENTIC badge, explanation, the time-and-revocation panel (trusted time, authority, server clock marked as not evidence, CRL entry, policy decision) and all ten steps with the certificate sub-checks; no console errors. The page's "eight-step" description was stale and now describes ten steps.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
