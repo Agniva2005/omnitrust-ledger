@@ -1,18 +1,21 @@
 // Document Management layer: the signing action.
 //
 // Composes three layers without doing any crypto itself: it asks the PKI layer for
-// the certificate, key and time-stamp, the orchestrator for the signature, and the
-// lifecycle for the state transition.
+// the certificate, key, CMS encoding and time-stamps, the orchestrator for the signature,
+// and the lifecycle for the state transition.
 import type { Signature } from "@prisma/client";
 import { ConflictError, NotFoundError, redactErrorForLog } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
 import { AuthorizationError, requireCapability, type Actor } from "@/lib/auth/rbac";
-import { sha256 } from "@/lib/crypto/hash";
+import { sha256, sha256Hex } from "@/lib/crypto/hash";
 import { assertAlgorithm, orchestrator } from "@/lib/crypto/orchestrator";
 import { prisma } from "@/lib/db";
 import { assertPath, assertDocumentState } from "@/lib/documents/lifecycle";
-import { latestVersion, recomputeVersionHash } from "@/lib/documents/service";
+import { latestVersion } from "@/lib/documents/service";
+import { readBlob } from "@/lib/documents/storage";
+import { getRootCa } from "@/lib/pki/ca";
 import { privateKeyPemFor, publicKeyPemFromCertificate } from "@/lib/pki/certificates";
+import { createDetachedSignature } from "@/lib/pki/cms-signature";
 import { issueTimestampToken, type IssuedTimestamp } from "@/lib/pki/tsa";
 import { validateCertificate } from "@/lib/pki/validation";
 
@@ -34,10 +37,26 @@ function isUniqueViolation(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === "P2002";
 }
 
+/** A time-stamp, or null when the Time-Stamp Authority cannot provide one. Never throws. */
+async function tryTimestamp(signatureValue: Uint8Array): Promise<{ issued: IssuedTimestamp | null; error: string | null }> {
+  try {
+    return { issued: await issueTimestampToken({ imprint: sha256(signatureValue) }), error: null };
+  } catch (error) {
+    console.error("Time-stamping failed", redactErrorForLog(error));
+    return { issued: null, error: redactErrorForLog(error).summary };
+  }
+}
+
 /**
- * Signs the current version's hash. The message handed to the provider is the raw 32
- * bytes of that SHA-256, so the signature is over the document's content digest. The
- * signature value is then time-stamped (RFC 3161 Appendix A), which is what later lets a
+ * Signs the current version in one action, producing two signatures by the same key over
+ * the same document bytes:
+ *
+ * - the stored signature, over the raw 32 bytes of the version's SHA-256, which the
+ *   verification workflow checks; and
+ * - a detached CMS SignedData (RFC 5652), whose signed attributes carry a digest of the
+ *   document bytes, exported for verification with external tools.
+ *
+ * Each signature value is time-stamped (RFC 3161 Appendix A); that is what later lets a
  * signature be shown to predate a revocation of its certificate.
  */
 export async function signDocument(input: SignDocumentInput): Promise<SignDocumentResult> {
@@ -81,29 +100,32 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
 
   // Integrity precondition: never sign a hash that no longer describes the stored
   // bytes, otherwise the signature would attest to something that was never there.
-  const recomputed = await recomputeVersionHash(version);
-  if (recomputed !== version.hash) {
+  const content = await readBlob(version.storagePath);
+  if (sha256Hex(content) !== version.hash) {
     throw new ConflictError(
       "Stored bytes no longer match the recorded hash for this version; refusing to sign",
     );
   }
 
+  const privateKeyPem = privateKeyPemFor(certificate.keyPair);
   const signatureBytes = await orchestrator.sign({
     algorithm,
     message: Buffer.from(version.hash, "hex"),
-    privateKeyPem: privateKeyPemFor(certificate.keyPair),
+    privateKeyPem,
   });
 
   // A signature without a time-stamp is still a valid signature; it simply cannot be shown
   // to predate a later revocation. So an unavailable TSA is recorded, not fatal.
-  let timestamp: IssuedTimestamp | null = null;
-  let timestampError: string | null = null;
-  try {
-    timestamp = await issueTimestampToken({ imprint: sha256(signatureBytes) });
-  } catch (error) {
-    timestampError = redactErrorForLog(error).summary;
-    console.error("Time-stamping failed", redactErrorForLog(error));
-  }
+  const { issued: timestamp, error: timestampError } = await tryTimestamp(signatureBytes);
+
+  const cms = await createDetachedSignature({
+    algorithm,
+    content,
+    certificatePem: certificate.certPem,
+    issuerCertificatePem: (await getRootCa()).certPem,
+    privateKeyPem,
+    timestamp: async (signatureValue) => (await tryTimestamp(signatureValue)).issued?.token ?? null,
+  });
 
   // The signature row and the lifecycle transition commit together or not at all. The
   // unique constraint on documentVersionId settles a race between two signers.
@@ -119,6 +141,7 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
           signedByUserId: input.actor.userId,
           timestampToken: timestamp ? new Uint8Array(timestamp.token) : null,
           timestampedAt: timestamp?.genTime ?? null,
+          cmsSignature: new Uint8Array(cms.der),
         },
       });
       const advanced = await tx.document.update({
@@ -145,6 +168,8 @@ export async function signDocument(input: SignDocumentInput): Promise<SignDocume
       signatureByteLength: signatureBytes.length,
       signedHash: version.hash,
       versionNumber: version.versionNumber,
+      cmsByteLength: cms.der.length,
+      cmsTimestamped: cms.timestamped,
     },
   });
 

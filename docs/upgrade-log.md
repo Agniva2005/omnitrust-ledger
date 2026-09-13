@@ -259,3 +259,56 @@ Phase 4 is split into three commits: 4a (revocation reasons and CRLs, this entry
 - Over real HTTP against `npm run dev`: two ECDSA certificates issued, two documents uploaded and signed through the API, both VALID with a trusted time; after revoking one for `affiliationChanged` and the other for `keyCompromise` (CRL #5), the first stays VALID (`SIGNED_BEFORE_REVOCATION`) and the second is INVALID (`COMPROMISE_TIME_UNKNOWN`, only the revocation step failing).
 - Browser, `/documents/<id>/verify` for the `affiliationChanged` document: AUTHENTIC badge, explanation, the time-and-revocation panel (trusted time, authority, server clock marked as not evidence, CRL entry, policy decision) and all ten steps with the certificate sub-checks; no console errors. The page's "eight-step" description was stale and now describes ten steps.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+
+---
+
+## Phase 5 — Detached CMS / PKCS#7 signatures with external verification
+
+### Design decision: a second signature, made in the same action
+
+The stored signature is over the raw 32 bytes of the version's SHA-256. A CMS SignedData with signed attributes cannot contain that value: RFC 5652 section 5.4 requires the signature to be computed over the DER of the signed attributes, which carry the message digest. Re-encoding the existing value as CMS would therefore produce a file no standard verifier accepts, and inventing an "OmniTrust CMS" would not be CMS.
+
+So the signing action now produces **two signatures by the same key over the same document bytes**, and says so in the schema, the signing module and the UI:
+
+1. the stored signature, which the in-app verification workflow checks (unchanged); and
+2. a **detached CMS SignedData** (`Signature.cmsSignature`) for export:
+   - content type `id-data`, no embedded content;
+   - signed attributes: content-type, signing-time, message-digest of the document bytes under the provider's declared CMS digest (SHA-256 for RSA-PSS and ECDSA; SHA-512 for Ed25519 per RFC 8419 and ML-DSA per RFC 9882), and ESS signingCertificateV2;
+   - the signer's and the CA's certificates, so a verifier needs only the trust anchor;
+   - an RFC 3161 time-stamp over the SignerInfo's own signature value as the `id-aa-signatureTimeStampToken` unsigned attribute (RFC 3161 Appendix A). This is structurally a CAdES-style time-stamped signature; **no CAdES profile conformance is claimed**.
+
+Signatures made before this phase have no CMS signature; exporting one returns 409 with that explanation rather than fabricating one.
+
+### What changed
+
+- **`lib/pki/cms-signature.ts`**: `createDetachedSignature()` and `verifyDetachedSignature()`. The verifier returns VALID / INVALID / UNAVAILABLE and checks structure, that the signer's certificate is carried and matches the signer identifier, that the algorithm identified from the key matches the digest OID, signature OID and exact parameters its provider declares, the content-type, message-digest and signingCertificateV2 attributes, the signature, the chain to the local CA with the digitalSignature key usage, and any signature time-stamp. Revocation over time remains the verification workflow's job.
+- **Provider metadata** declares `interoperability.opensslCms` (true for RSA-PSS and ECDSA, false for Ed25519 and ML-DSA), so the UI and export script show an OpenSSL command only where it works.
+- **Export**: `GET /api/documents/:id/export?part=cms|content|certificate[&version=n]` (any signed-in reader; `DOCUMENT_EXPORTED` audited). Served as attachments with `nosniff`; document bytes as `application/octet-stream` so uploaded content never renders inline; filenames sanitised for `Content-Disposition`. The document page lists the three downloads per signature and shows the external `openssl cms -verify` command with the honest scope of that check. `npm run export:signature` also writes `signature.p7s` and `ca.pem` and prints the command.
+- **Migration** `20260913150000_add_cms_detached_signature` adds the nullable `cmsSignature` column.
+
+### External evidence
+
+- **RSA-PSS and ECDSA**: `openssl cms -verify -binary -inform DER -in … -content … -CAfile ca.pem` reports `CMS Verification successful`, and fails with `content verify error` when one byte is appended to the document. Checked with **both** OpenSSL CLIs present on the machine, **3.4.0** (MSYS2) and **3.2.4** (Git for Windows), in the automated tests and on files downloaded over HTTP. `openssl ts -verify` accepts the embedded signature time-stamp over the signature value.
+- **Ed25519**: neither OpenSSL CLI can process Ed25519 CMS at all. OpenSSL 3.4.0 refuses to *create* one of its own (`CMS_add1_signer: no default digest`, reproduced with an OpenSSL-generated Ed25519 key and certificate) and refuses to verify ours with `Explicit digest not allowed with EdDSA operations`; 3.2.4 fails the same way. This is a limitation of the tool, not evidence about the encoding. Independent check instead: the signed-attribute bytes are extracted from the file with `asn1js` (not the app's encoder), confirmed to contain the SHA-512 of the document, and verified with **`node:crypto`'s Ed25519** (OpenSSL's implementation; the app signs Ed25519 with `@noble/ed25519`); a one-byte change is rejected.
+- **ML-DSA-65**: neither CLI can build a chain with an ML-DSA certificate (support arrives in OpenSSL 3.5). Independent check: the same extracted bytes verified with **`@noble/post-quantum`** (the app signs ML-DSA with OpenSSL through `node:crypto`); a one-byte change is rejected.
+- `openssl asn1parse` parses the export for all four algorithms.
+
+### Correction to earlier entries
+
+Two OpenSSL CLIs are installed: PowerShell resolves `openssl` to **MSYS2's 3.4.0**, Git Bash to **Git's 3.2.4**. The test suite spawns whichever is first on `PATH`, and it has been run from PowerShell, so the automated OpenSSL checks recorded above as "OpenSSL CLI 3.2.4" (Phases 4a and 4b) actually ran against **3.4.0**. To make the record true for both, the CRL, TSA, CMS and provider-metadata test files were re-run with Git's 3.2.4 first on `PATH`: **95 passed, 1 skipped** (the ML-DSA CLI command, as before). The Phase 0 audit's statement that "the system OpenSSL CLI is 3.2.4" describes only the Git Bash environment.
+
+### Bugs found during this phase
+
+1. **A failed migration was recorded as applied.** A stale `shadow-migrate.db` left at the repository root made `prisma migrate diff` fail, the empty output was written as the migration, and `migrate deploy` recorded that empty migration as applied to the development database, so the column did not exist. Found by checking the table's columns rather than trusting the "applied" message. The migration row was removed, the SQL regenerated after deleting the stale shadow database, the migration re-applied, and the column confirmed with `pragma_table_info`.
+2. **A weak test, fixed before commit.** The first version of the "swapped signer certificate" test only removed a certificate and issued one it never used. It now checks both a removed signer certificate and one replaced by a different real certificate.
+
+### Verification
+
+- `npm test`: **570 passed, 1 skipped** across 39 files (537 after Phase 4c). New `tests/pki/cms-signature.test.ts` (33 tests):
+  - every algorithm's CMS signature verifies in-app with a valid signature time-stamp, uses its provider's identifiers, is detached and carries two certificates; re-encoding is byte-identical, so rejections come from the tampering;
+  - altered document bytes (message digest), a flipped signature bit, a removed or replaced signer certificate, another document's signature, and non-CMS bytes are all INVALID;
+  - the OpenSSL, `node:crypto` and `@noble/post-quantum` checks above, plus a test that every registered algorithm has at least one independent check;
+  - export: bytes, content types, audit entries, 409 for a signature without CMS, 404 for an unsigned version, filename sanitising, and the route's 401 / 400 / 404 / 200 responses with `attachment` and `nosniff`.
+- Over real HTTP against `npm run dev`: for all four algorithms, a document uploaded and signed through the API and exported as a `viewer`; the CMS files verify with both OpenSSL CLIs for RSA-PSS and ECDSA and fail on altered content; unauthenticated export 401; unknown part 400.
+- Browser: the document page shows the CMS / Document / Certificate links and the external-verification card; no console errors.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.

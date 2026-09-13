@@ -56,7 +56,7 @@ export const mlDsa44TestProvider = {
       signatureParametersDer: null,
       standard: "RFC 9882 (ML-DSA in CMS)",
     },
-    interoperability: { opensslVerify: null, note: "Test-only provider." },
+    interoperability: { opensslVerify: null, opensslCms: false, note: "Test-only provider." },
     capabilities: {
       generateKeyPair: true,
       sign: true,

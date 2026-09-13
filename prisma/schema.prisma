@@ -179,6 +179,11 @@ model DocumentVersion {
 /// timestampToken: an RFC 3161 TimeStampToken over SHA-256 of signatureBytes (RFC 3161
 /// Appendix A). It is the proof that the signature existed at its genTime; timestampedAt
 /// copies that time for listings only and is never trusted by verification.
+///
+/// cmsSignature: a detached CMS SignedData (RFC 5652) made in the same signing action by the
+/// same key over signed attributes that carry a digest of the document bytes, with a
+/// time-stamp over its own signature value. Exported for verification with external tools.
+/// Null for signatures made before CMS export existed.
 model Signature {
   id                String          @id @default(cuid())
   documentVersionId String
@@ -192,6 +197,7 @@ model Signature {
   signedBy          User            @relation(fields: [signedByUserId], references: [id])
   timestampToken    Bytes?
   timestampedAt     DateTime?
+  cmsSignature      Bytes?
 
   @@unique([documentVersionId])
   @@index([certificateId])

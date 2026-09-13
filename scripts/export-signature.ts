@@ -12,6 +12,7 @@ import { prisma } from "../lib/db";
 import { sha256Hex } from "../lib/crypto/hash";
 import { orchestrator } from "../lib/crypto/orchestrator";
 import { readBlob } from "../lib/documents/storage";
+import { getRootCa } from "../lib/pki/ca";
 import { publicKeyPemFromCertificate } from "../lib/pki/certificates";
 
 async function main() {
@@ -46,6 +47,8 @@ async function main() {
     signature: path.join(outputDir, "signature.bin"),
     certificate: path.join(outputDir, "certificate.pem"),
     publicKey: path.join(outputDir, "public-key.pem"),
+    cms: path.join(outputDir, "signature.p7s"),
+    ca: path.join(outputDir, "ca.pem"),
   };
 
   fs.writeFileSync(files.document, plaintext);
@@ -54,6 +57,8 @@ async function main() {
   fs.writeFileSync(files.signature, Buffer.from(signature.signatureBytes));
   fs.writeFileSync(files.certificate, signature.certificate.certPem);
   fs.writeFileSync(files.publicKey, publicKeyPemFromCertificate(signature.certificate.certPem));
+  fs.writeFileSync(files.ca, (await getRootCa()).certPem);
+  if (signature.cmsSignature) fs.writeFileSync(files.cms, Buffer.from(signature.cmsSignature));
 
   const relative = (file: string) => path.relative(process.cwd(), file).split(path.sep).join("/");
   const metadata = orchestrator.lookup(signature.algorithm);
@@ -80,6 +85,21 @@ async function main() {
       .replace("{signature}", relative(files.signature));
     console.log(`\nVerify outside this app (${metadata.interoperability.note}):\n`);
     console.log(`  ${command}`);
+  }
+
+  if (!signature.cmsSignature) {
+    console.log("\nThis signature predates CMS export, so no detached CMS signature was written.");
+  } else if (metadata?.interoperability.opensslCms) {
+    console.log("\nVerify the detached CMS signature (RFC 5652) against the document and the CA:\n");
+    console.log(
+      `  openssl cms -verify -binary -inform DER -in ${relative(files.cms)} -content ${relative(files.document)} -CAfile ${relative(files.ca)} -out ${relative(path.join(outputDir, "verified.bin"))}`,
+    );
+  } else {
+    console.log(
+      `\nA detached CMS signature was written to ${relative(files.cms)}. The OpenSSL CLI (3.2.4 and 3.4.0 checked) cannot verify ` +
+        `${orchestrator.displayName(signature.algorithm)} CMS signatures; tests/pki/cms-signature.test.ts ` +
+        "checks them against an independent implementation.",
+    );
   }
 
   console.log(

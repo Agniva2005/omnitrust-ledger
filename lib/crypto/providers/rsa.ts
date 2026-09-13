@@ -97,6 +97,7 @@ export const rsaProvider = {
     interoperability: {
       opensslVerify:
         "openssl dgst -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:32 -verify {publicKey} -signature {signature} {message}",
+      opensslCms: true,
       note: "OpenSSL 1.1.1 or later.",
     },
     capabilities: {

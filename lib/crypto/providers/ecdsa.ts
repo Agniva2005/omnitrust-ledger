@@ -87,6 +87,7 @@ export const ecdsaProvider = {
     },
     interoperability: {
       opensslVerify: "openssl dgst -sha256 -verify {publicKey} -signature {signature} {message}",
+      opensslCms: true,
       note: "OpenSSL 1.1.1 or later.",
     },
     capabilities: {

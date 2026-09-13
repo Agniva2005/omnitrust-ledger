@@ -90,6 +90,10 @@ export const eddsaProvider = {
     interoperability: {
       opensslVerify:
         "openssl pkeyutl -verify -pubin -inkey {publicKey} -rawin -in {message} -sigfile {signature}",
+      // Neither the OpenSSL 3.2.4 nor the 3.4.0 CLI can create or verify Ed25519 CMS SignedData,
+      // including signatures OpenSSL made itself ("no default digest" when signing, "Explicit
+      // digest not allowed with EdDSA operations" when verifying).
+      opensslCms: false,
       note: "OpenSSL 3.0 or later (-rawin).",
     },
     capabilities: {

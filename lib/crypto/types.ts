@@ -81,6 +81,13 @@ export type AlgorithmMetadata<Id extends string = string> = {
      * whenever an `openssl` binary is available.
      */
     opensslVerify: string | null;
+    /**
+     * Whether `openssl cms -verify` verifies this algorithm's detached CMS signatures, as
+     * checked with the OpenSSL 3.2.4 and 3.4.0 CLIs. Exercised by tests/pki/cms-signature.test.ts
+     * with whichever `openssl` is first on PATH; algorithms marked false are cross-checked
+     * there against an independent implementation instead.
+     */
+    opensslCms: boolean;
     note: string;
   };
   capabilities: {

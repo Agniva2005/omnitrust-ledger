@@ -93,6 +93,7 @@ export const mlDsa65Provider = {
     },
     interoperability: {
       opensslVerify: null,
+      opensslCms: false,
       note:
         "The OpenSSL command-line tool gained ML-DSA only in version 3.5, so no CLI command is declared. " +
         "Signatures are cross-verified against @noble/post-quantum, an independent FIPS 204 implementation, " +

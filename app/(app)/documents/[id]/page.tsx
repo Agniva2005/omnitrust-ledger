@@ -133,6 +133,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                   <TableHead>Certificate</TableHead>
                   <TableHead>Signer</TableHead>
                   <TableHead>Signed at</TableHead>
+                  <TableHead>Export</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -155,6 +156,30 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                     <TableCell className="text-xs text-muted-foreground">
                       {signature.signedAt.toISOString()}
                     </TableCell>
+                    <TableCell className="space-x-3 whitespace-nowrap text-xs">
+                      {signature.cmsSignature ? (
+                        <a
+                          className="underline underline-offset-2"
+                          href={`/api/documents/${document.id}/export?part=cms&version=${signature.documentVersion.versionNumber}`}
+                        >
+                          CMS (.p7s)
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground">no CMS</span>
+                      )}
+                      <a
+                        className="underline underline-offset-2"
+                        href={`/api/documents/${document.id}/export?part=content&version=${signature.documentVersion.versionNumber}`}
+                      >
+                        Document
+                      </a>
+                      <a
+                        className="underline underline-offset-2"
+                        href={`/api/documents/${document.id}/export?part=certificate&version=${signature.documentVersion.versionNumber}`}
+                      >
+                        Certificate
+                      </a>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -162,6 +187,45 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           )}
         </CardContent>
       </Card>
+
+      {signatures.some((signature) => signature.cmsSignature) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Verify outside this app</CardTitle>
+            <CardDescription>
+              The CMS export is a standard detached signature (RFC 5652) carrying the signer&apos;s
+              and the CA&apos;s certificates and a time-stamp over its signature value. Download it,
+              the document and the{" "}
+              <a className="underline underline-offset-2" href="/api/pki/ca?format=pem">
+                CA certificate
+              </a>
+              , then run:
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <pre className="overflow-x-auto rounded-md border bg-muted p-3 font-mono text-xs">
+              openssl cms -verify -binary -inform DER -in document.p7s -content document -CAfile ca.pem -out verified.bin
+            </pre>
+            <p className="text-muted-foreground">
+              Checked with the OpenSSL 3.2.4 and 3.4.0 command-line tools for{" "}
+              {orchestrator
+                .describeAll()
+                .filter((metadata) => metadata.interoperability.opensslCms)
+                .map((metadata) => metadata.displayName)
+                .join(" and ")}
+              . Those tools cannot process{" "}
+              {orchestrator
+                .describeAll()
+                .filter((metadata) => !metadata.interoperability.opensslCms)
+                .map((metadata) => metadata.displayName)
+                .join(" or ")}{" "}
+              CMS signatures, so those are checked in the test suite against independent
+              implementations instead. This is a demo CA: a successful check means the file is
+              consistent, not that anyone outside this installation trusts the signer.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
