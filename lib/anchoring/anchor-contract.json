@@ -1,0 +1,138 @@
+{
+  "contractName": "OmniTrustAnchor",
+  "compiler": {
+    "name": "solc",
+    "version": "0.8.37+commit.f401782d.Emscripten.clang",
+    "settings": {
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "evmVersion": "cancun"
+    }
+  },
+  "sourceSha256": "3b28e89e9155ed435e2b0901cbb728ea0053206528f7d27be703f468375712f1",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "root",
+          "type": "bytes32"
+        }
+      ],
+      "name": "AlreadyAnchored",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "EmptyRoot",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotOwner",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "root",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "leafCount",
+          "type": "uint32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "blockNumber",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "Anchored",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "root",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint32",
+          "name": "leafCount",
+          "type": "uint32"
+        }
+      ],
+      "name": "anchor",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "anchoredAtBlock",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "60a0604052348015600e575f5ffd5b50336080526080516102416100305f395f8181608f015260d401526102415ff3fe608060405234801561000f575f5ffd5b506004361061003f575f3560e01c80630cbeeb9e1461004357806347489de4146100755780638da5cb5b1461008a575b5f5ffd5b6100626100513660046101be565b5f6020819052908152604090205481565b6040519081526020015b60405180910390f35b6100886100833660046101d5565b6100c9565b005b6100b17f000000000000000000000000000000000000000000000000000000000000000081565b6040516001600160a01b03909116815260200161006c565b336001600160a01b037f00000000000000000000000000000000000000000000000000000000000000001614610112576040516330cd747160e01b815260040160405180910390fd5b81610130576040516329e7276760e11b815260040160405180910390fd5b5f8281526020819052604090205415610163576040516330d2381360e01b81526004810183905260240160405180910390fd5b5f82815260208181526040918290204390819055825163ffffffff85168152918201524281830152905183917fc77e7ca1614df785558ec92803636b24132984bd5bbd99a5b502087aa76bc354919081900360600190a25050565b5f602082840312156101ce575f5ffd5b5035919050565b5f5f604083850312156101e6575f5ffd5b82359150602083013563ffffffff81168114610200575f5ffd5b80915050925092905056fea264697066735822122096ef562db0b94e10d8a810185b4edfa02df78cb58f328d59e6c7ac1f408f4b3864736f6c63430008250033",
+  "deployedBytecode": "608060405234801561000f575f5ffd5b506004361061003f575f3560e01c80630cbeeb9e1461004357806347489de4146100755780638da5cb5b1461008a575b5f5ffd5b6100626100513660046101be565b5f6020819052908152604090205481565b6040519081526020015b60405180910390f35b6100886100833660046101d5565b6100c9565b005b6100b17f000000000000000000000000000000000000000000000000000000000000000081565b6040516001600160a01b03909116815260200161006c565b336001600160a01b037f00000000000000000000000000000000000000000000000000000000000000001614610112576040516330cd747160e01b815260040160405180910390fd5b81610130576040516329e7276760e11b815260040160405180910390fd5b5f8281526020819052604090205415610163576040516330d2381360e01b81526004810183905260240160405180910390fd5b5f82815260208181526040918290204390819055825163ffffffff85168152918201524281830152905183917fc77e7ca1614df785558ec92803636b24132984bd5bbd99a5b502087aa76bc354919081900360600190a25050565b5f602082840312156101ce575f5ffd5b5035919050565b5f5f604083850312156101e6575f5ffd5b82359150602083013563ffffffff81168114610200575f5ffd5b80915050925092905056fea264697066735822122096ef562db0b94e10d8a810185b4edfa02df78cb58f328d59e6c7ac1f408f4b3864736f6c63430008250033",
+  "immutableReferences": {
+    "4": [
+      {
+        "length": 32,
+        "start": 143
+      },
+      {
+        "length": 32,
+        "start": 212
+      }
+    ]
+  }
+}

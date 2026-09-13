@@ -5,6 +5,9 @@ import { prisma } from "@/lib/db";
  * tables, so test files never need to know the dependency graph themselves.
  */
 export async function resetDatabase() {
+  await prisma.anchorLeaf.deleteMany();
+  await prisma.anchorBatch.deleteMany();
+  await prisma.anchorContract.deleteMany();
   await prisma.auditLogEntry.deleteMany();
   await prisma.auditCheckpoint.deleteMany();
   await prisma.auditSigner.deleteMany();

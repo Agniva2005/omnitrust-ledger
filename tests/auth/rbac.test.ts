@@ -68,8 +68,15 @@ describe("capability matrix", () => {
 
   it("gives a VIEWER read-only capabilities", () => {
     expect(capabilitiesFor("VIEWER").sort()).toEqual(
-      ["audit:read", "certificate:read", "document:read"].sort(),
+      ["anchor:read", "audit:read", "certificate:read", "document:read"].sort(),
     );
+  });
+
+  it("reserves audit checkpoints and anchoring to ADMIN", () => {
+    for (const capability of ["audit:checkpoint", "anchor:create"] as const) {
+      expect(can("ADMIN", capability)).toBe(true);
+      for (const role of ["SIGNER", "VERIFIER", "VIEWER"] as const) expect(can(role, capability)).toBe(false);
+    }
   });
 });
 

@@ -357,3 +357,54 @@ The hash chain detects an edited row only while the stored hashes are left alone
   - verification then reports 1 agreeing checkpoint with a trusted time and one later entry on the chain alone.
 - Browser, `/audit` as admin: "LOG VERIFIED", "chain intact", "1 checkpoint agree", the explanation, the checkpoint row (RFC 3161, admin@demo), and the new audit entries; no console errors.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+
+---
+
+## Phase 7 — Blockchain anchoring with Merkle batching (local chain)
+
+### Scope, stated first
+
+- Only **32-byte commitments** are anchored, batched into a Merkle tree; **only the root and the leaf count go on chain**. No document, no personal data, no key, no value and no token is ever sent to the chain.
+- An anchor shows that a commitment was part of a tree whose root was recorded **in a given block of that chain instance**. It does **not** identify anyone: who signed is established by the PKI, not by the chain.
+- The chain is a **local, in-memory Hardhat development node**. Restarting it discards every anchor; verification then reports UNAVAILABLE, never a pass and never a fabricated failure.
+- Transactions come from the node's **public development account**; the app holds no chain key. A public chain would need real key custody, which is not implemented.
+
+### Feasibility probes (before any project code)
+
+- `solc` 0.8.37 (solcjs) compiles the contract under Node 24 in about 0.4 s.
+- **Hardhat's in-process network took about 33 s to load**, which rules it out inside requests and per-test hooks. A **separate `hardhat node` over JSON-RPC HTTP** was ready in about 1.3–2.8 s, with a 14 ms anchor round trip, so that is the architecture for both the app and the tests.
+- **Deployed code never equals solc's runtime bytecode**, because the immutable `owner` is filled in at deployment. Contract identity is therefore checked with solc's `immutableReferences` masked; the raw comparison fails and the masked one succeeds.
+- The contract's custom errors (`AlreadyAnchored`, `NotOwner`, `EmptyRoot`) decode over HTTP, while the in-process transport only surfaced "unknown RPC error".
+- A restarted node has a **new genesis hash and none of the old state**, which is how a reset is recognised.
+
+### What changed
+
+- **`lib/crypto/merkle.ts`**: RFC 6962 Merkle tree hash (0x00 leaf / 0x01 node prefixes, the RFC's split for unbalanced trees), audit paths, and the RFC 9162 §2.1.3.2 inclusion-verification algorithm.
+- **`contracts/OmniTrustAnchor.sol`**: owner-only `anchor(bytes32 root, uint32 leafCount)`, one anchoring per root, a non-zero root, an `Anchored` event carrying the leaf count; no payable function. **`scripts/compile-anchor-contract.ts`** (`npm run contract:compile`, `--check`) compiles it reproducibly with pinned settings into the committed `lib/anchoring/anchor-contract.json`, which includes the source hash.
+- **`lib/anchoring/chain.ts`**: viem client for `ANCHOR_RPC_URL` (default `http://127.0.0.1:8545`); deploy, submit (simulated first, so refusals carry the contract's error name), read; an unreachable node is `ChainUnavailableError` (503), a refusal is `AnchorRejectedError` (409).
+- **`lib/anchoring/service.ts`** (models `AnchorContract`, `AnchorBatch`, `AnchorLeaf`):
+  - commitments are SHA-256 over a versioned, line-based record of identifiers and hashes: for a signature, its id, document-version hash, SHA-256 of the signature value, certificate serial and algorithm; for an audit checkpoint, its id, sequence and checkpoint hash;
+  - `anchorPending()` (ADMIN) anchors every not-yet-anchored signature and checkpoint as one root, deploying the contract on first use per chain instance; each item is anchored at most once;
+  - `verifyAnchor()` returns VALID / INVALID / UNAVAILABLE / NOT_ANCHORED. It checks that the item's commitment recomputes to the anchored leaf, the stored batch rebuilds the root, the inclusion proof verifies, the answering chain is the recording instance (chain id and genesis hash), the address holds the anchor contract (masked code), the contract records the root in the recorded block, and the `Anchored` event carries the same leaf count and transaction. The last check matters: **an RFC 9162 inclusion proof does not by itself bind the tree size** (see below), so the anchored leaf count is what does.
+- **API and UI**: `GET /api/anchoring` (any reader), `POST /api/anchoring/batches` (ADMIN), `GET /api/anchoring/verify?kind=&target=`; an `/anchoring` page (in the navigation) with chain status, pending counts, an admin "Anchor" button, the limits above, and batches marked "current" or "chain gone". New capabilities `anchor:read` (all roles) and `anchor:create` (ADMIN); audit actions `ANCHOR_CONTRACT_DEPLOYED`, `ANCHOR_BATCH_CREATED`.
+- **Tests start their own chain**: `tests/global-setup.ts` launches a Hardhat node on port 8546 (apart from `npm run chain` on 8545) and stops it when the suite ends. Its stdout is discarded, because Hardhat prints its development account keys there.
+
+### Findings during this phase
+
+1. **Inclusion proofs do not bind tree size.** A test expecting leaf 3's proof from a 7-leaf tree to fail for a claimed size of 8 was wrong: in both trees leaf 3 sits in the same left subtree of 4, so the RFC 9162 walk takes the same directions and verifies. RFC 9162 authenticates size through the signed tree head. The test now asserts sizes that change the path shape fail, documents the size-8 case as a property, and anchor verification compares the on-chain leaf count.
+2. **The Merkle implementation was checked against published vectors**: it reproduces the Certificate Transparency reference roots for 1 to 8 of its standard test leaves, including the unbalanced sizes 3, 5, 6 and 7, plus the empty tree.
+3. **An existing RBAC test pinned VIEWER's exact capability list** and correctly failed when the read-only `anchor:read` was added. It was updated, and a test now asserts audit checkpoints and anchoring are ADMIN-only.
+
+### Verification
+
+- `npm test`: **628 passed, 1 skipped** across 42 files (589 after Phase 6). New tests:
+  - `tests/crypto/merkle.test.ts` (21): the CT vectors, leaf/node domain separation, no collision with a duplicated last leaf, proofs for every leaf of every size 1–8 and larger random trees, and rejection of a different leaf, wrong index, shape-changing sizes, tampered, truncated or extended proofs, a different root, and malformed input without throwing.
+  - `tests/anchoring/anchoring.test.ts` (17), against a real local chain: the committed artifact equals a fresh compile and has no payable function; non-admins are refused and an unreachable chain is `ChainUnavailableError`; three signatures and a checkpoint anchor as one 4-leaf root that the contract records in the batch's block; the transaction input is exactly selector + root + leaf count with zero value, and contains no document hash or signature bytes; nothing pending is 409; every item verifies VALID with a proof re-checked independently; a later signature is NOT_ANCHORED until a second batch with a new root; INVALID for a signature altered after anchoring, an altered sibling leaf, a genuine anchor contract that never saw the root, and an address without the contract; UNAVAILABLE when the recording chain instance is gone or no chain answers; the contract refuses a duplicate root (`AlreadyAnchored`) and a non-owner (`NotOwner`).
+- Over real HTTP against `npm run dev`, with a chain the check script started on 8545:
+  - viewer overview 200 with 13 pending (12 signatures, 1 checkpoint); anchoring refused for a viewer (403), cross-site (403) and without a session (401);
+  - admin anchoring 201: 13 leaves in block 2; a repeat returns 409;
+  - a signature (leaf 0, 4 proof nodes) and the audit checkpoint (leaf 12) verify VALID with all seven checks passing; an unknown kind is 400;
+  - an independent viem read shows the contract recording the root at block 2, and the transaction input is 68 bytes with zero value;
+  - with the chain stopped, verification is UNAVAILABLE ("cannot be reached") and the overview reports it unreachable; after a restart it is UNAVAILABLE ("chain instance is gone") and the batch is shown as not on the current chain.
+- Browser, `/anchoring` as admin after that check: "UNAVAILABLE" with the reason, the limits, and the batch marked "chain gone"; the Anchoring navigation link; no console errors. **Consequence for the demo database:** its 13 anchors belong to a chain instance that no longer exists and will always verify UNAVAILABLE, exactly as documented.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`, `npm run contract:compile -- --check`: clean.

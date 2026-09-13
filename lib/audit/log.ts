@@ -30,6 +30,8 @@ export const AUDIT_ACTIONS = [
   "AUDIT_SIGNER_CREATED",
   "AUDIT_CHECKPOINT_CREATED",
   "AUDIT_VERIFIED",
+  "ANCHOR_CONTRACT_DEPLOYED",
+  "ANCHOR_BATCH_CREATED",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

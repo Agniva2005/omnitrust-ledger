@@ -28,6 +28,7 @@ model User {
   signatures   Signature[]
   auditEntries AuditLogEntry[]
   auditCheckpoints AuditCheckpoint[]
+  anchorBatches    AnchorBatch[]
 }
 
 /// Append-only hash chain: entryHash = SHA256(prevHash + canonical serialisation of
@@ -83,6 +84,53 @@ model AuditCheckpoint {
   createdByUserId    String?
   createdBy          User?       @relation(fields: [createdByUserId], references: [id])
   createdAt          DateTime
+}
+
+/// A deployment of contracts/OmniTrustAnchor.sol. genesisHash identifies the chain instance:
+/// a restarted in-memory development chain has a new genesis hash and none of the old state.
+model AnchorContract {
+  id           String        @id @default(cuid())
+  chainId      Int
+  genesisHash  String
+  address      String
+  deployTxHash String
+  ownerAddress String
+  createdAt    DateTime      @default(now())
+  batches      AnchorBatch[]
+
+  @@unique([chainId, genesisHash])
+}
+
+/// One Merkle root (RFC 6962) recorded in one transaction. Only the root and leaf count are on
+/// chain; the leaves stay here. See lib/anchoring/service.ts.
+model AnchorBatch {
+  id              String         @id @default(cuid())
+  contractId      String
+  contract        AnchorContract @relation(fields: [contractId], references: [id])
+  root            String         @unique
+  leafCount       Int
+  txHash          String         @unique
+  blockNumber     Int
+  blockTimestamp  DateTime
+  createdByUserId String?
+  createdBy       User?          @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime       @default(now())
+  leaves          AnchorLeaf[]
+}
+
+/// kind: "SIGNATURE" | "AUDIT_CHECKPOINT". commitment: hex SHA-256 over identifiers and hashes of
+/// the target, recomputed at verification time. An item is anchored at most once.
+model AnchorLeaf {
+  id         String      @id @default(cuid())
+  batchId    String
+  batch      AnchorBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  index      Int
+  kind       String
+  targetId   String
+  commitment String
+
+  @@unique([batchId, index])
+  @@unique([kind, targetId])
 }
 
 /// Singleton, seeded once. `algorithm` is not in the spec's field list but is required:
