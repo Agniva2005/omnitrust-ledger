@@ -709,3 +709,63 @@ Ten accepted limitations (L1–L10) are stated in the audit: stateless sessions,
 - All 18 test files cited in the audit document were checked to exist.
 - The S2 fix is verified through the real route handlers in tests; it was not re-checked over HTTP against `npm run dev`.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.
+
+---
+
+## Phase 14 — End-to-end regression against an isolated production installation
+
+### What changed
+
+- **`scripts/e2e.ts`** (`npm run build && npm run e2e`) regression-tests the whole application over real HTTP, against a separate installation rather than the development one:
+  - it creates `storage/e2e/<run id>/` with a new SQLite database, its own document storage, a freshly generated master key, a random JWT secret and its own Security Lab root;
+  - it applies the committed migrations and seeds through the real services;
+  - it starts its own local chain on port 8547, with stdout discarded because Hardhat prints its development keys there;
+  - it runs the **production build** with `next start` on port 3100, apart from the dev server (3000), `npm run chain` (8545) and the test chain (8546).
+- **Checks, in order:**
+  1. migration and seeding, including an intact audit chain;
+  2. both servers start;
+  3. the login page renders with its security headers and without `X-Powered-By`, and a protected page redirects to login when signed out;
+  4. all four roles sign in, and all eight application pages render for an admin without key material;
+  5. every seeded signed sample verifies VALID with a trusted time, the pre-tampered invoice is `INVALID / HASH_MISMATCH`, and the unsigned draft returns 409 "not signed";
+  6. for every registered algorithm: issue a certificate, upload, sign and verify VALID;
+  7. the CMS exports for RSA-PSS and ECDSA verify with `openssl cms -verify` (skipped, and reported as skipped, if OpenSSL is absent);
+  8. a `keyCompromise` revocation makes a signature `INVALID / CERTIFICATE_REVOKED`, and the downloaded CRL lists "Key Compromise" in OpenSSL;
+  9. a cross-site POST, a viewer issuing a certificate, a signer anchoring and an unauthenticated document list are all refused;
+  10. the audit log verifies, and a signed checkpoint is created and reconciled;
+  11. pending commitments anchor and an anchor verifies VALID;
+  12. a Security Lab control run holds with the installation's data untouched;
+  13. five wrong passwords lock the account, so the correct password returns 429;
+  14. logout expires the session cookie;
+  15. **the development database's SHA-256 is identical before and after**.
+
+  Every API response body is also checked for key material and password hashes.
+- **Cleanup and reporting:** the isolated installation is deleted afterwards, `storage/e2e/report.json` keeps the results and a server log tail on failure, and the script exits non-zero if any step fails.
+- **`tests/ci/e2e-plan.test.ts`** checks the isolation plan without starting servers:
+  - every path lies inside the run directory under the gitignored `storage/`;
+  - the development database, storage and key are never referenced;
+  - the ports avoid 3000, 8545 and 8546;
+  - a new JWT secret is generated each run;
+  - `npm run e2e` runs this script.
+
+### Found during this phase
+
+The first version of `scripts/e2e.ts` hashed the development database with `createHash` from `node:crypto`. That breaks the project's own rule that cryptographic primitives live only in `lib/crypto`. The rule's enforcement caught it: the full suite failed four boundary and agility tests, and `npm run check:boundary` reported `scripts/e2e.ts:12`. The script now uses `sha256Hex` from `lib/crypto/hash`.
+
+### Verification
+
+- **`npm run e2e`: E2E PASSED, 17 of 17 steps, in 15.4 s**, exit code 0. The results were:
+  - 28 audit entries after seeding;
+  - 4 seeded samples VALID;
+  - 4 algorithms signed and verified end to end;
+  - OpenSSL verified the RSA-PSS and ECDSA CMS exports;
+  - 73 entries verified after a checkpoint;
+  - 10 commitments anchored in block 2;
+  - the isolated installation was removed and the development database was unchanged.
+
+  The run was repeated after the boundary fix with the same result.
+- **Negative control:** to show the harness can fail, a fake HTTP server that answers like a live service but is not a blockchain node was put on the E2E chain port.
+  - Only the anchoring step failed, with `503 No local chain is answering at http://127.0.0.1:8547`.
+  - The run reported `E2E FAILED: 16 passed, 1 failed` and exited 1.
+  - The isolated installation was still removed and the development database was still untouched.
+- `npm test`: **699 passed, 1 skipped** across 53 files (695 after Phase 13), including the four E2E plan tests.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`: clean. The production build used was made after the last application change, in Phase 13; this phase changed no application code.
