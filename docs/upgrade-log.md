@@ -408,3 +408,66 @@ The hash chain detects an edited row only while the stored hashes are left alone
   - with the chain stopped, verification is UNAVAILABLE ("cannot be reached") and the overview reports it unreachable; after a restart it is UNAVAILABLE ("chain instance is gone") and the batch is shown as not on the current chain.
 - Browser, `/anchoring` as admin after that check: "UNAVAILABLE" with the reason, the limits, and the batch marked "chain gone"; the Anchoring navigation link; no console errors. **Consequence for the demo database:** its 13 anchors belong to a chain instance that no longer exists and will always verify UNAVAILABLE, exactly as documented.
 - `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`, `npm run contract:compile -- --check`: clean.
+
+---
+
+## Phase 8 — Security Lab (attack console on disposable data)
+
+### Isolation, the governing requirement
+
+Attack scenarios deliberately corrupt documents, signatures, CRLs and the audit log. They must never be able to reach the application's own data, so isolation is structural rather than a convention:
+
+- **A separate process per run.** `lib/security-lab/sandbox.ts` creates `<lab root>/runs/<run id>/` with a copy of a pre-migrated template database, its own document storage and a freshly generated master key. It then starts `scripts/security-lab-runner.ts` in a child process whose `DATABASE_URL`, `STORAGE_ROOT` and `MASTER_KEY_PATH` point only there, with a random `JWT_SECRET` and an unreachable chain URL. The web server process never runs an attack.
+- **A guard every scenario passes first.** `assertSandbox()` refuses unless the database, storage root and key all lie inside the same run directory and the lab flag is set. The only other acceptance is the throwaway `test.db` with `storage/test` while Vitest runs. A lab-shaped database paired with the real storage or key, parts spread over two runs, or the development database is refused.
+- **Deleted afterwards.** The run directory is removed after every run, including failed ones, and the result says whether removal succeeded.
+- **Evidence, not assertion.** The service records the application database's record counts and audit-chain head before and after each run and reports whether they are identical. The only change allowed is the `SECURITY_LAB_RUN` audit entry appended after that comparison.
+- **Template reuse.** The template is migrated once and rebuilt only when the committed migrations change (fingerprinted by content), so a run takes about 1.7 s rather than re-migrating.
+- **Admin-only** (`lab:run`), one run at a time (a second concurrent request is 409), and every run is audited with its outcome.
+
+### Scenarios
+
+Fifteen, each implemented against the real services (`lib/security-lab/scenarios.ts`, catalogue in `catalog.ts`). Each reports **HELD / FAILED / ERROR** together with the expected result, the observed result, the steps and the evidence:
+
+| Scenario | Holds if |
+| --- | --- |
+| Control: untouched signed document | VALID (shows the lab is not rigged to fail) |
+| Substitute stored bytes with validly encrypted content | INVALID / HASH_MISMATCH |
+| Flip one ciphertext bit | INVALID / HASH_MISMATCH (AES-GCM tag) |
+| Corrupt the signature | INVALID / SIGNATURE_INVALID |
+| Replay a genuine signature and time-stamp onto another document | INVALID / SIGNATURE_INVALID |
+| Relabel signature and certificate as another registered algorithm | INVALID / ALGORITHM_MISMATCH |
+| Point the signature at a certificate of another algorithm | INVALID / ALGORITHM_MISMATCH |
+| Key compromise reported after signing, no invalidity date | INVALID / CERTIFICATE_REVOKED |
+| Swap in another signature's genuine time-stamp | INVALID / TIMESTAMP_INVALID |
+| Forge the stored CRL | UNVERIFIABLE / REVOCATION_STATUS_UNAVAILABLE, never VALID |
+| Verify the CMS export against altered content | CMS INVALID (and VALID for the original) |
+| Edit an audit row | chain breaks at exactly that entry |
+| Rewrite the audit log and recompute every hash | chain check fooled; checkpoint reports LOG_REWRITTEN |
+| Delete the newest audit entries | chain check fooled; checkpoint reports LOG_TRUNCATED |
+| Brute-force a password | locked after 5 failures; the correct password is then refused |
+
+Algorithms are chosen from the registry and the CA policy, so the boundary checker still finds no algorithm literal outside `lib/crypto`. The brute-force scenario exercises the same limiter and `authenticate()` in the login route's order (limiter first); it does not call the HTTP route itself, and says so.
+
+### What changed
+
+- `lib/security-lab/{guard,catalog,scenarios,sandbox,service,protocol}.ts`, `scripts/security-lab-runner.ts`.
+- `GET /api/security-lab` (scenario list) and `POST /api/security-lab` `{scenario}` (run), both ADMIN.
+- `/security-lab` page: a card per scenario with its attack, control and pass condition, a Run button, and the result with steps, sandbox deletion and the unchanged-database evidence. It is in the navigation.
+- Capability `lab:run` (ADMIN) and audit action `SECURITY_LAB_RUN`.
+
+### Verification
+
+- `npm test`: **652 passed, 1 skipped** across 43 files (628 after Phase 7). New `tests/security-lab/security-lab.test.ts` (24):
+  - the catalogue is fully implemented with unique ids and includes a control;
+  - **all 15 scenarios run for real against the test database and report HELD**;
+  - the guard accepts a complete run directory and refuses the development database (even with `VITEST` set), a sandbox database with the real storage or key, a lab path without the flag, parts from two runs, and a scenario started in a process not pointed at a sandbox;
+  - admin-only listing and running, and unknown scenarios refused;
+  - **a full child-process run** reports HELD with `INVALID / HASH_MISMATCH`, deletes its run directory, leaves the calling database's document count unchanged, and is audited with `productionUntouched: true`; a second run reuses the template.
+  - The RBAC test now also asserts `lab:run` is ADMIN-only.
+- Over real HTTP against `npm run dev`:
+  - listing and running are refused for a verifier (403), cross-site (403) and without a session (401), and an unknown scenario is 400;
+  - the control, forged-CRL and consistent-rewrite scenarios each returned HELD in about 1.7 s, with the sandbox removed and the application database identical before and after (13 documents, 12 signatures, 5 CRLs; only the lab's own audit entries were added afterwards);
+  - a second run started during one returned 409;
+  - `storage/lab/runs` was empty afterwards.
+- Browser, `/security-lab` as admin: running "Flip one bit of the encrypted blob" showed CONTROL HELD, the sandbox id marked deleted, and the unchanged-database note; no console errors.
+- `tsc --noEmit`, `npm run lint`, `npm run check:boundary`, `npm run build`: clean.

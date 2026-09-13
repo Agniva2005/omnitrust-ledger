@@ -72,8 +72,8 @@ describe("capability matrix", () => {
     );
   });
 
-  it("reserves audit checkpoints and anchoring to ADMIN", () => {
-    for (const capability of ["audit:checkpoint", "anchor:create"] as const) {
+  it("reserves audit checkpoints, anchoring and the Security Lab to ADMIN", () => {
+    for (const capability of ["audit:checkpoint", "anchor:create", "lab:run"] as const) {
       expect(can("ADMIN", capability)).toBe(true);
       for (const role of ["SIGNER", "VERIFIER", "VIEWER"] as const) expect(can(role, capability)).toBe(false);
     }
