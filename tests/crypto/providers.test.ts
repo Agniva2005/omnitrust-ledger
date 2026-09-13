@@ -98,6 +98,11 @@ describe("signature encodings match each algorithm's specification", () => {
     expect(signature.length).toBe(384);
   });
 
+  it("ML-DSA-65 produces exactly 3309 bytes (FIPS 204 Table 2)", async () => {
+    const signature = await providerFor("ML_DSA_65").sign(message, keys.ML_DSA_65.privateKeyPem);
+    expect(signature.length).toBe(3309);
+  });
+
   it("Ed25519 produces exactly 64 bytes (RFC 8032)", async () => {
     const signature = await providerFor("ED25519").sign(message, keys.ED25519.privateKeyPem);
     expect(signature.length).toBe(64);

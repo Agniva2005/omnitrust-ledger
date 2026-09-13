@@ -126,8 +126,14 @@ describe("identifying a key from its material", () => {
     const rsa2048 = generateKeyPairSync("rsa", { modulusLength: 2048 }).publicKey;
     const p384 = generateKeyPairSync("ec", { namedCurve: "secp384r1" }).publicKey;
     const ed448 = generateKeyPairSync("ed448").publicKey;
+    // Other ML-DSA parameter sets: @types/node does not yet declare these key types.
+    const generateUntyped = generateKeyPairSync as unknown as (
+      type: string,
+    ) => { publicKey: import("node:crypto").KeyObject };
+    const mlDsa44 = generateUntyped("ml-dsa-44").publicKey;
+    const mlDsa87 = generateUntyped("ml-dsa-87").publicKey;
 
-    for (const key of [rsa2048, p384, ed448]) {
+    for (const key of [rsa2048, p384, ed448, mlDsa44, mlDsa87]) {
       expect(orchestrator.identifyPublicKey(pem(key))).toBeNull();
     }
   });

@@ -114,3 +114,48 @@ Samples are now matched by content hash first, the same rule the upload service 
 - `tsc --noEmit`: clean. `npm run lint`: clean. `npm run check:boundary`: clean. `npm run build`: clean, with no import warnings.
 - Over real HTTP against `npm run dev` after all changes: every page returned 200, and the three seeded signed documents verified `VALID` with step 5 reporting that each certificate's key matches its signature and certificate records; the tampered invoice returned `INVALID` / `HASH_MISMATCH`.
 - Browser: the certificates page and the home page render algorithm metadata from the registry (security class, parameters, implementation and version).
+
+---
+
+## Phase 3 — ML-DSA-65, the fourth provider
+
+### The agility claim, tested by doing it
+
+ML-DSA-65 was added in its own commit, **`663e26b`**, so the change is its own evidence:
+
+```
+$ git show --stat 663e26b
+ lib/crypto/providers/mldsa.ts | 138 ++++++++++++++++++++++++++++++++++++++++++
+ lib/crypto/registry.ts        |   2 +
+ 2 files changed, 140 insertions(+)
+```
+
+One new provider file and a two-line registry change (its import and its entry). No document management, PKI, verification, storage, API route, UI page, seed fixture or script changed. With only those two files added, the existing test suite, which iterates the registry rather than naming algorithms, exercised ML-DSA-65 through key generation, metadata conformance, certificate issuance and chain validation, signing, verification, tamper detection, provider-level algorithm-confusion refusal across every ordered pair, and seeding.
+
+### Implementation
+
+- ML-DSA from **OpenSSL 3.5.5 through `node:crypto`** (native code, same backend as RSA-PSS and ECDSA). Pure mode, empty context string.
+- Metadata states what was observed by probe before it was written, not what was assumed:
+  - signing is **hedged (randomised)**: two signatures over the same message differ, both verify;
+  - FIPS 204 sizes: **1952-byte** public key, **3309-byte** signature;
+  - SubjectPublicKeyInfo OID `2.16.840.1.101.3.4.3.18` as found in OpenSSL-generated keys;
+  - NIST post-quantum security category 3 (FIPS 204); X.509 per RFC 9881, CMS per RFC 9882.
+- Refuses keys of any other type, **including the other ML-DSA parameter sets** (tested with ML-DSA-44 and ML-DSA-87 keys), applying the lesson of finding G14.
+- Capabilities: can be certified (`x509Subject`); cannot act as this installation's CA (`x509Issuer` false), since certificate signing uses WebCrypto and Node marks ML-DSA there as experimental.
+
+### Independent verification
+
+The OpenSSL command-line tool supports ML-DSA only from version 3.5; the CLI on the development machine is 3.2.4. So ML-DSA declares no CLI command, and the metadata test that runs each provider's declared command is skipped for it and reported as skipped. Independent verification comes from a second implementation instead. `tests/crypto/mldsa-interop.test.ts` checks OpenSSL against **`@noble/post-quantum`**, an audited pure-JavaScript FIPS 204 implementation:
+
+- key generation from the **same 32-byte seed** (exported from OpenSSL as a JWK `AKP` key) yields a **byte-identical public key** in both implementations;
+- noble verifies signatures made by the OpenSSL-backed provider and rejects them over an altered message;
+- the provider verifies signatures made by noble and rejects them over an altered message;
+- the provider accepts a noble key it never generated once wrapped in SubjectPublicKeyInfo, and the orchestrator identifies that key as ML-DSA-65.
+
+### Verification
+
+- `npm test`: **440 passed, 1 skipped** across 32 files. The skipped test is the OpenSSL-CLI interoperability check for ML-DSA-65, which cannot run for the reason above.
+- `tsc --noEmit`, `npm run check:boundary`, `npm run build`: clean.
+- `npm run db:seed` on the existing development database issued an ML-DSA-65 certificate and signed `service-contract-ml-dsa-65.txt` without any fixture change; audit chain intact (38 entries).
+- Over real HTTP against `npm run dev`: the seeded ML-DSA document verifies `VALID` (3309-byte signature; step 5 confirms an ML-DSA-65 key matching both records); `POST /api/certificates` with `ML_DSA_65` returns 201 with an `ACTIVE` certificate; an unregistered `ML_DSA_87` is rejected with 400, the allowed list in the error coming from the registry.
+- Browser: the certificates page offers "ML-DSA-65 (post-quantum)" in the issue form and lists both ML-DSA certificates as valid; the home page shows it with its security class and signature size. The dev server logged no errors.
