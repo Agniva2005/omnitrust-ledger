@@ -2,6 +2,7 @@ import { FileText, Upload } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
+import { SecurityClassBadge } from "@/components/security-class-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,7 +16,9 @@ import {
 } from "@/components/ui/table";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
+import { orchestrator } from "@/lib/crypto/orchestrator";
 import { listDocuments } from "@/lib/documents/service";
+import { latestSignatureAlgorithms } from "@/lib/documents/signing";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +27,7 @@ export default async function DocumentsPage() {
   if (!actor) redirect("/login");
 
   const documents = await listDocuments(actor);
+  const signedWith = await latestSignatureAlgorithms(documents.map((document) => document.id));
   const canUpload = can(actor.role, "document:upload");
 
   return (
@@ -57,10 +61,11 @@ export default async function DocumentsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Filename</TableHead>
-                <TableHead>Owner</TableHead>
+                <TableHead className="hidden lg:table-cell">Owner</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Signed with</TableHead>
                 <TableHead className="text-right">Versions</TableHead>
-                <TableHead>SHA-256 (current)</TableHead>
+                <TableHead className="hidden 2xl:table-cell">SHA-256 (current)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -74,12 +79,25 @@ export default async function DocumentsPage() {
                       <span className="truncate group-hover:underline">{document.filename}</span>
                     </Link>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{document.owner.email}</TableCell>
+                  <TableCell className="hidden text-muted-foreground lg:table-cell">{document.owner.email}</TableCell>
                   <TableCell>
                     <StatusBadge status={document.status} />
                   </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const algorithm = signedWith.get(document.id);
+                      if (!algorithm) return <span className="text-xs text-muted-foreground">unsigned</span>;
+                      const metadata = orchestrator.lookup(algorithm);
+                      return (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="whitespace-nowrap text-sm">{orchestrator.displayName(algorithm)}</span>
+                          {metadata && <SecurityClassBadge securityClass={metadata.securityClass} />}
+                        </div>
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{document.versions.length}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground" title={document.currentHash}>
+                  <TableCell className="hidden font-mono text-xs text-muted-foreground 2xl:table-cell" title={document.currentHash}>
                     {document.currentHash.slice(0, 24)}...
                   </TableCell>
                 </TableRow>

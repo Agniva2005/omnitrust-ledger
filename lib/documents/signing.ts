@@ -212,3 +212,18 @@ export async function signaturesForDocument(documentId: string) {
     },
   });
 }
+
+/** The algorithm of each document's most recent signature, for list views. Unsigned documents are absent. */
+export async function latestSignatureAlgorithms(documentIds: readonly string[]): Promise<Map<string, string>> {
+  if (documentIds.length === 0) return new Map();
+  const signatures = await prisma.signature.findMany({
+    where: { documentVersion: { documentId: { in: [...documentIds] } } },
+    orderBy: { signedAt: "desc" },
+    select: { algorithm: true, documentVersion: { select: { documentId: true } } },
+  });
+  const latest = new Map<string, string>();
+  for (const signature of signatures) {
+    if (!latest.has(signature.documentVersion.documentId)) latest.set(signature.documentVersion.documentId, signature.algorithm);
+  }
+  return latest;
+}

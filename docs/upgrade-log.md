@@ -1066,3 +1066,87 @@ The dashboard read stored certificate statuses. The seeded expired certificate t
 - Typecheck and lint pass.
 - **`npm run ci`: CI PASSED in 187.7 s**, all 11 steps, including the production build of the redesigned interface.
 - **`npm run e2e`: 17 of 17 passed against the redesigned production build.** This includes "every application page renders for an admin (8 pages)", which checks each page's heading and the absence of key material, and the demo-script flows that drive the preserved control labels.
+
+---
+
+## Phase 19 — Interface audit by walkthrough, and the fixes it drove
+
+**Method.** A full walkthrough of the site in the in-app browser, against a freshly migrated and seeded isolated installation (`storage/demo-audit`, five algorithms) with its own local chain. The development database was not used.
+- **Screenshots.** The pane was hidden, and scrolled screenshots had proved unreliable in Phase 18, so each page was captured in a viewport tall enough to need no scrolling.
+- **Roles.** Signer and admin.
+- **Actions performed:**
+  - uploaded a file and signed it with the composite certificate;
+  - verified an authentic and a tampered document;
+  - opened the revoke form;
+  - created a signed checkpoint and verified the log;
+  - anchored 8 commitments;
+  - ran a Security Lab scenario.
+- **Viewports.** A 390 px phone width and the dark theme.
+- **Accessibility.** A DOM scan for unnamed controls, unlabelled inputs, duplicate IDs, missing alt text, heading order and landmarks.
+
+**Findings.**
+1. **Revoke form broke the table.** It expanded inside the certificates table cell, clipped its own labels ("Reason", "Invalidity date") and forced horizontal scrolling. It was the one layout defect that got in the way of a demo step.
+2. **Two pages still in the old design.** On the document detail page:
+   - the signatures table wrapped algorithm, size and date;
+   - the tool list read "EdDSA Ed25519 or ML-DSA-65 or ML-DSA-65 + ECDSA P-256";
+   - the Sign card repeated itself.
+
+   On the certificate explorer:
+   - distinguished names broke mid-word;
+   - it carried a second, in-page breadcrumb.
+3. **Breadcrumbs showed ID fragments** ("…4majtz") for documents and certificates.
+4. **Verification page:** the Time-Stamp Authority name broke mid-token ("OU / =Demo").
+5. **Algorithms page:** the old header, and a comparison table that wrapped names and scrolled sideways at laptop width.
+6. **Dashboard:**
+   - "ML-DSA-65 + ECDSA…" truncated;
+   - the Documents figure detail ("2 lifecycle states in use") said little;
+   - timestamps not marked as UTC;
+   - no call to action when there are no verifications.
+7. **Forms.** Plain `<select>` pickers for signing certificates and algorithms, a bare file input on an otherwise empty upload page, and audit metadata as raw JSON.
+8. **Admin checks.** The integrity-check result was only small badges. The Security Lab had no summary or filter, and non-admins saw only an "Admins only" card. A scenario ERROR was styled neutrally.
+9. **Accessibility.** No unnamed controls, unlabelled inputs, duplicate IDs or missing landmarks. But every page exposed exactly one heading, because card titles were `div`s.
+10. **Development only:** the Next.js route indicator covered the sidebar's demo notice.
+
+**Fixes.**
+1. **Revoke** is a dialog. Labels are unchanged ("Revoke", "Reason (RFC 5280)", "Confirm revocation", "Cancel").
+2. **Document detail and certificate explorer** are rebuilt:
+   - summary tiles, and a copy button for the hash;
+   - signatures table without wrapping, with class badges and export buttons;
+   - the OpenSSL command with a copy button, and `Intl.ListFormat` for the tool lists;
+   - trust-chain checks with icons, and a lifecycle stepper;
+   - `overflow-wrap:anywhere` for names and hashes.
+3. **Breadcrumbs** say "Document" and "Certificate".
+4. **The verification trust grid** wraps without splitting tokens.
+5. **Algorithms page:**
+   - uses the shared page header and definition-list cards;
+   - the "Deterministic" column shows only on extra-wide screens, and each card also states it.
+6. **Dashboard:**
+   - distribution labels sit above their bars, so long names are never truncated;
+   - the Documents detail lists counts by state;
+   - timestamps carry "UTC";
+   - an empty verifications card links to the documents list.
+7. **Forms:**
+   - signing-certificate and issue-algorithm pickers are radio cards with security-class badges and sizes;
+   - the upload page has a drop zone and an explanation of what upload does;
+   - audit entries show key/value chips, with the full JSON in a disclosure.
+8. **Admin views:**
+   - the integrity check leads with a verdict banner ("LOG VERIFIED" / "TAMPERING DETECTED" unchanged);
+   - the Security Lab has a session summary and category filters, a scenario ERROR is a warning, and non-admins see the catalogue read-only.
+9. **`CardTitle` renders an `h2`,** so each card contributes to the page's heading outline.
+10. **Development settings:** `devIndicators: false`.
+11. **Documents list** gains a "Signed with" column, backed by `latestSignatureAlgorithms` in `lib/documents/signing.ts`. `tests/documents/latest-signature-algorithms.test.ts` covers it: newest signature per document, unsigned documents absent. Owner and hash columns collapse on narrower screens.
+12. **Landing page:** the fifth algorithm card spans the remaining columns.
+13. **Benchmarks page:** the implementation caveat is a warning callout, and names no longer wrap.
+14. **`DEMO_SCRIPT.md` step 6** now says to pick the ML-DSA-65 card.
+
+**Re-check.**
+- After the fixes, the documents list, document detail, revoke dialog, explorer, algorithms, dashboard, upload and audit pages were captured again.
+- The revoke dialog opened with its labels and left the page at viewport width.
+- The documents and algorithms tables no longer overflow at 1280 px. The first attempt still overflowed, because Tailwind's `xl` breakpoint includes exactly 1280 px, and the hash column moved to `2xl`.
+- The server log stayed free of errors.
+- Typecheck and lint pass, and the document tests pass 63 of 63.
+
+**Not established:** a formal accessibility audit, or a contrast measurement against WCAG thresholds.
+
+- **`npm run ci`: CI PASSED in 184.1 s**, all 11 steps.
+- **`npm run e2e`: 17 of 17 passed**, including every application page rendering for an admin, and the development database's SHA-256 identical before and after.

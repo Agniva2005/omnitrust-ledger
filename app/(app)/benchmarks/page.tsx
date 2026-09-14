@@ -209,11 +209,18 @@ export default async function BenchmarksPage() {
               ))}
             </ul>
           )}
-          {data.notes.map((note) => (
-            <p key={note} className={note.startsWith("IMPORTANT") ? "text-foreground" : "text-muted-foreground"}>
-              {note}
-            </p>
-          ))}
+          {data.notes.map((note) =>
+            note.startsWith("IMPORTANT") ? (
+              <p key={note} role="note" className="rounded-lg border border-warning/40 bg-warning/[0.08] px-3 py-2 text-foreground">
+                <span className="font-semibold text-warning">Important: </span>
+                {note.replace(/^IMPORTANT:\s*/, "")}
+              </p>
+            ) : (
+              <p key={note} className="text-muted-foreground">
+                {note}
+              </p>
+            ),
+          )}
         </CardContent>
       </Card>
 
@@ -236,7 +243,7 @@ export default async function BenchmarksPage() {
             <TableBody>
               {data.algorithms.map((entry) => (
                 <TableRow key={entry.algorithm}>
-                  <TableCell className="font-medium">{entry.displayName}</TableCell>
+                  <TableCell className="whitespace-nowrap font-medium">{entry.displayName}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <span className="w-20">{entry.signatureBytes} bytes</span>
@@ -281,7 +288,7 @@ export default async function BenchmarksPage() {
                   const stats = entry.payloads[0][operation];
                   return (
                     <TableRow key={entry.algorithm}>
-                      <TableCell className="font-medium">{entry.displayName}</TableCell>
+                      <TableCell className="whitespace-nowrap font-medium">{entry.displayName}</TableCell>
                       <TableCell className="text-xs">{stats.n ?? data.parameters.iterations}</TableCell>
                       <StatsCells stats={stats} slowestMedian={slowest((candidate) => candidate.payloads[0][operation].medianMs)} />
                     </TableRow>
@@ -344,7 +351,7 @@ export default async function BenchmarksPage() {
             <TableBody>
               {data.algorithms.map((entry) => (
                 <TableRow key={entry.algorithm}>
-                  <TableCell className="font-medium">{entry.displayName}</TableCell>
+                  <TableCell className="whitespace-nowrap font-medium">{entry.displayName}</TableCell>
                   <TableCell className="text-xs">{entry.keyGeneration.n ?? data.parameters.keyGenerationIterations}</TableCell>
                   <StatsCells stats={entry.keyGeneration} slowestMedian={slowest((candidate) => candidate.keyGeneration.medianMs)} />
                 </TableRow>

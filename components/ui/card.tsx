@@ -19,9 +19,10 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 );
 CardHeader.displayName = "CardHeader";
 
-const CardTitle = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+// A real heading (h2), so each card contributes to the page outline for assistive technology.
+const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <div
+    <h2
       ref={ref}
       className={cn("text-[15px] font-semibold leading-snug tracking-tight", className)}
       {...props}

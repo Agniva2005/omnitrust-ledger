@@ -84,8 +84,14 @@ export default function HomePage() {
             </div>
           </div>
           <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {algorithms.map((algorithm) => (
-              <li key={algorithm.id} className="group rounded-xl border bg-card p-5 shadow-card transition-shadow hover:shadow-elevated">
+            {algorithms.map((algorithm, index) => (
+              <li
+                key={algorithm.id}
+                className={`group rounded-xl border bg-card p-5 shadow-card transition-shadow hover:shadow-elevated ${
+                  // With five algorithms in three columns, let the last card fill the row instead of leaving a gap.
+                  index === algorithms.length - 1 && algorithms.length % 3 === 2 ? "lg:col-span-2" : ""
+                }`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-semibold tracking-tight">{algorithm.displayName}</div>

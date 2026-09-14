@@ -44,7 +44,7 @@ The seed contains:
 | # | Do this | You should see | Demonstrates |
 | --- | --- | --- | --- |
 | 5 | **Documents** → **Upload document** → choose any small text file under **File** → **Upload** | The document page, state **HASHED** and a SHA-256. Check it yourself with `certutil -hashfile <file> SHA256` (Windows) or `sha256sum <file>` | Real hashing of the uploaded bytes; blobs stored encrypted |
-| 6 | **Certificates** → in **Issue a certificate**, pick **ML-DSA-65 (post-quantum)** under **Algorithm** → **Issue certificate** | A new ACTIVE ML-DSA-65 certificate, issued by the ECDSA P-256 root CA | Key generation through the registry; a post-quantum key certified by a classical CA |
+| 6 | **Certificates** → in **Issue a certificate**, pick the **ML-DSA-65** card (marked post-quantum) under **Algorithm** → **Issue certificate** | A new ACTIVE ML-DSA-65 certificate, issued by the ECDSA P-256 root CA | Key generation through the registry; a post-quantum key certified by a classical CA |
 | 7 | Open your uploaded document → under **Signing certificate** choose the new ML-DSA-65 certificate → **Sign document** | A signature row: ML-DSA-65, **3309 bytes**, and its Export links | Signing through a certificate, never by naming an algorithm |
 | 8 | Open the five seeded samples from **Documents** | Signature sizes of **384** (RSA-PSS), about **70** (ECDSA), **64** (Ed25519), **3309** (ML-DSA-65) and about **3380** (ML-DSA-65 + ECDSA P-256 composite: both component signatures) bytes | One workflow, five algorithms, one of them a post-quantum/classical hybrid |
 

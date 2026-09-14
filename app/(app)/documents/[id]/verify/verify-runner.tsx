@@ -80,7 +80,7 @@ function TrustRow({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="min-w-0 space-y-0.5">
       <dt className="text-xs text-muted-foreground">{label}:</dt>
-      <dd className="break-all font-mono text-xs">{value ?? "none"}</dd>
+      <dd className="font-mono text-xs [overflow-wrap:anywhere]">{value ?? "none"}</dd>
     </div>
   );
 }
@@ -200,7 +200,7 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
                     </span>
                     <span className="min-w-0">
                       <span className={cn(sub ? "text-muted-foreground" : "font-medium")}>{step.step}</span>
-                      {step.detail && <span className="mt-0.5 block break-all font-mono text-[11px] text-muted-foreground">{step.detail}</span>}
+                      {step.detail && <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground [overflow-wrap:anywhere]">{step.detail}</span>}
                     </span>
                   </li>
                 );

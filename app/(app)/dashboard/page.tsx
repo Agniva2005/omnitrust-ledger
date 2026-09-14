@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 function when(iso: string) {
-  return iso.replace("T", " ").slice(0, 19);
+  return `${iso.replace("T", " ").slice(0, 19)} UTC`;
 }
 
 function ServiceRow({ icon: Icon, name, detail, state }: { icon: typeof ShieldCheck; name: string; detail: React.ReactNode; state: "ok" | "attention" | "absent" }) {
@@ -64,7 +64,7 @@ export default async function DashboardPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Documents" value={overview.documents.total} icon={FileText} href="/documents" detail={`${overview.documents.byStatus.length} lifecycle state${overview.documents.byStatus.length === 1 ? "" : "s"} in use`} />
+        <StatCard label="Documents" value={overview.documents.total} icon={FileText} href="/documents" detail={overview.documents.byStatus.map((row) => `${row.count} ${row.key.toLowerCase()}`).join(", ") || "none uploaded"} />
         <StatCard
           label="Signatures"
           value={overview.signatures.total}
@@ -176,17 +176,26 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             {overview.recentVerifications.length === 0 ? (
-              <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">No verifications have been run yet.</p>
+              <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                <p>No verifications have been run yet.</p>
+                <Link href="/documents" className="mt-2 inline-block font-medium text-primary hover:underline">
+                  Open a document to verify it
+                </Link>
+              </div>
             ) : (
               <ul className="divide-y">
                 {overview.recentVerifications.map((entry) => (
-                  <li key={entry.seq} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-sm">
+                  <li key={entry.seq} className="flex items-start gap-3 py-2.5 text-sm">
                     <VerdictBadge outcome={entry.outcome} />
-                    <Link href={`/documents/${entry.documentId}`} className="min-w-0 truncate font-medium hover:underline">
-                      {entry.filename}
-                    </Link>
-                    {entry.reason && <span className="font-mono text-[11px] text-muted-foreground">{entry.reason}</span>}
-                    <span className="ml-auto font-mono text-[11px] text-muted-foreground">{when(entry.at)}</span>
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/documents/${entry.documentId}`} className="block truncate font-medium hover:underline">
+                        {entry.filename}
+                      </Link>
+                      <div className="mt-0.5 flex flex-wrap gap-x-2 font-mono text-[11px] text-muted-foreground">
+                        {entry.reason && <span>{entry.reason}</span>}
+                        <span>{when(entry.at)}</span>
+                      </div>
+                    </div>
                   </li>
                 ))}
               </ul>

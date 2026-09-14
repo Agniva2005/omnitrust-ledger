@@ -8,6 +8,23 @@ All notable changes to OmniTrust Ledger. The format follows [Keep a Changelog](h
 - `docs/paper/outline.md`: a working outline for a systems and empirical paper. It maps every intended claim to existing evidence, lists the measurements still required (cross-machine runs, larger n, a post-quantum CA and TSA), and records which related work has been verified and which has not. Nothing in it is a submission-ready result.
 - `docs/audit/03-enterprise-and-publication-readiness.md`: an external readiness assessment with separate enterprise and publication tracks. Phases 16–18 act on parts of it.
 
+## Phase 19 — Interface audit by walkthrough (2026-09-14)
+
+### Fixed
+- Revoking a certificate opens a dialog. The inline form had clipped its labels and forced the table to scroll sideways.
+- Breadcrumbs name documents and certificates instead of showing ID fragments.
+- Distinguished names and hashes no longer break mid-word on the verification and explorer pages.
+- The dashboard no longer truncates algorithm names, and its timestamps say UTC.
+- The documents and algorithms tables fit at laptop width.
+
+### Changed
+- Rebuilt document detail and certificate explorer pages: summary tiles, copy buttons, export buttons and a lifecycle stepper.
+- Card-based pickers for signing certificates and certificate algorithms, a drop-zone upload page, readable audit metadata, a verdict banner for the integrity check, and a Security Lab summary with filters; non-admins can see the scenario catalogue.
+- Card titles are real headings for assistive technology.
+
+### Added
+- A "Signed with" column on the documents list.
+
 ## Phase 18 — Interface redesign (2026-09-14)
 
 ### Changed

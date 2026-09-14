@@ -48,26 +48,23 @@ export default async function CertificatesPage() {
         description="Issued by the local root CA. Self-signed and trusted by nothing outside this app."
       />
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border bg-card px-5 py-4 shadow-card">
-        <div className="flex items-center gap-3">
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary">
-            <ShieldCheck aria-hidden className="h-4 w-4" />
-          </span>
-          <div>
-            <div className="text-sm font-medium">Local root Certificate Authority</div>
-            <div className="text-xs text-muted-foreground">
-              {ca ? `${ca.name} - signing with ${orchestrator.displayName(ca.algorithm)}` : "Not created yet. Run npm run setup."}
-            </div>
+      <div className="flex items-start gap-3 rounded-xl border bg-card px-5 py-4 shadow-card">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+          <ShieldCheck aria-hidden className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold">Local root Certificate Authority</h2>
+            {ca && <Badge variant="secondary">signing with {orchestrator.displayName(ca.algorithm)}</Badge>}
+            {ca && (
+              <Badge variant="outline" className="font-mono">
+                valid until {parseCertificate(ca.certPem).notAfter.toISOString().slice(0, 10)}
+              </Badge>
+            )}
           </div>
+          <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{ca ? ca.name.replace(/,(?=\S)/g, ", ") : "Not created yet. Run npm run setup."}</p>
+          {ca && <p className="text-xs text-muted-foreground">The CA private key is encrypted at rest with a key stored in a local file, not an HSM or KMS.</p>}
         </div>
-        {ca && (
-          <div className="text-xs text-muted-foreground sm:ml-auto sm:text-right">
-            <div>
-              Valid until <span className="font-mono">{parseCertificate(ca.certPem).notAfter.toISOString()}</span>
-            </div>
-            <div>The CA private key is encrypted at rest with a key stored in a local file, not an HSM or KMS.</div>
-          </div>
-        )}
       </div>
 
       {can(actor.role, "certificate:issue") && (
@@ -142,7 +139,14 @@ export default async function CertificatesPage() {
                   </TableCell>
                   {canRevoke && (
                     <TableCell className="text-right">
-                      {certificate.status !== "REVOKED" && <RevokeButton certificateId={certificate.id} />}
+                      {certificate.status !== "REVOKED" && (
+                        <RevokeButton
+                          certificateId={certificate.id}
+                          subject={certificate.subject.email}
+                          algorithm={orchestrator.displayName(certificate.algorithm)}
+                          serialNumber={certificate.serialNumber}
+                        />
+                      )}
                     </TableCell>
                   )}
                 </TableRow>

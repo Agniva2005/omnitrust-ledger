@@ -143,7 +143,10 @@ function Breadcrumbs({ pathname }: { pathname: string }) {
       <ol className="flex min-w-0 items-center gap-1 text-sm">
         {segments.map((segment, index) => {
           const href = `/${segments.slice(0, index + 1).join("/")}`;
-          const label = SEGMENT_LABELS[segment] ?? (segment.length > 12 ? `…${segment.slice(-6)}` : segment);
+          const parent = segments[index - 1];
+          const label =
+            SEGMENT_LABELS[segment] ??
+            (parent === "documents" ? "Document" : parent === "certificates" ? "Certificate" : segment.length > 12 ? `…${segment.slice(-6)}` : segment);
           const last = index === segments.length - 1;
           return (
             <li key={href} className="flex min-w-0 items-center gap-1">

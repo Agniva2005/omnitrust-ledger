@@ -22,16 +22,18 @@ export default async function SecurityLabPage() {
         description="Real attacks against real controls. Each run happens in a separate process with its own freshly created database, document storage and master key, which are deleted afterwards. The application's own data is never reachable from a scenario, and every run records its before-and-after record counts as evidence. A scenario reports whether the control held; nothing here is simulated."
       />
 
-      {can(actor.role, "lab:run") ? (
-        <LabConsole scenarios={SCENARIOS} />
-      ) : (
+      {!can(actor.role, "lab:run") && (
         <Card>
           <CardHeader>
             <CardTitle>Admins only</CardTitle>
-            <CardDescription>Role {actor.role} cannot run Security Lab scenarios. Sign in as admin@demo.</CardDescription>
+            <CardDescription>
+              Role {actor.role} cannot run Security Lab scenarios. Sign in as admin@demo. The catalogue below shows what each scenario attacks and which control
+              it tests.
+            </CardDescription>
           </CardHeader>
         </Card>
       )}
+      <LabConsole scenarios={SCENARIOS} canRun={can(actor.role, "lab:run")} />
     </div>
   );
 }

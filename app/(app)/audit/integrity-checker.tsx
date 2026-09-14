@@ -1,10 +1,12 @@
 "use client";
 
+import { CircleCheck, CircleX, Loader2, PenLine, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 type ChainBreak = { seq: number; entryId: string; problem: string; detail: string };
 
@@ -77,59 +79,70 @@ export function IntegrityChecker({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Integrity check</CardTitle>
-        <CardDescription>
-          Walks all {totalEntries} entries from the genesis hash, then checks every signed checkpoint and
-          that the log still hashes to what each one committed to. The chain alone is tamper-
-          <em>evident</em> against edits that leave the hashes as they were; checkpoints additionally
-          catch a log whose hashes were recomputed after an edit, and entries deleted from the end.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4">
+        <div className="max-w-3xl space-y-1">
+          <CardTitle>Integrity check</CardTitle>
+          <CardDescription>
+            Walks all {totalEntries} entries from the genesis hash, then checks every signed checkpoint and
+            that the log still hashes to what each one committed to. The chain alone is tamper-
+            <em>evident</em> against edits that leave the hashes as they were; checkpoints additionally
+            catch a log whose hashes were recomputed after an edit, and entries deleted from the end.
+          </CardDescription>
+        </div>
         <div className="flex flex-wrap gap-2">
           {canVerify && (
             <Button onClick={verify} disabled={pending !== null}>
+              {pending === "verify" ? <Loader2 aria-hidden className="animate-spin" /> : <ShieldCheck aria-hidden />}
               {pending === "verify" ? "Verifying..." : "Verify log integrity"}
             </Button>
           )}
           {canCheckpoint && (
             <Button variant="outline" onClick={checkpoint} disabled={pending !== null}>
+              {pending === "checkpoint" ? <Loader2 aria-hidden className="animate-spin" /> : <PenLine aria-hidden />}
               {pending === "checkpoint" ? "Signing..." : "Create signed checkpoint"}
             </Button>
           )}
         </div>
-
+      </CardHeader>
+      <CardContent className="space-y-4">
         {message && (
-          <p role={message.tone === "error" ? "alert" : "status"} className={`text-sm ${message.tone === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+          <p
+            role={message.tone === "error" ? "alert" : "status"}
+            className={cn(
+              "rounded-lg border px-3 py-2 text-sm",
+              message.tone === "error" ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-info/30 bg-info/10 text-foreground",
+            )}
+          >
             {message.text}
           </p>
         )}
 
         {result && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge variant={result.valid ? "success" : "destructive"}>
-                {result.valid ? "LOG VERIFIED" : "TAMPERING DETECTED"}
-              </Badge>
-              <Badge variant={result.chain.valid ? "secondary" : "destructive"}>
-                chain {result.chain.valid ? "intact" : "broken"}
-              </Badge>
-              <Badge variant={result.problems.length === 0 ? "secondary" : "destructive"}>
-                {result.checkpoints.length} checkpoint{result.checkpoints.length === 1 ? "" : "s"}
-                {result.problems.length === 0 ? " agree" : ` / ${result.problems.length} problem${result.problems.length === 1 ? "" : "s"}`}
-              </Badge>
-              <span className="text-sm text-muted-foreground">{result.chain.entriesChecked} entries checked</span>
+          <div className="animate-slide-up space-y-3">
+            <div role="status" className={cn("flex flex-wrap items-start gap-4 rounded-xl border p-4", result.valid ? "border-success/35 bg-success/[0.07]" : "border-destructive/35 bg-destructive/[0.07]")}>
+              {result.valid ? <CircleCheck aria-hidden className="h-8 w-8 shrink-0 text-success" strokeWidth={1.75} /> : <CircleX aria-hidden className="h-8 w-8 shrink-0 text-destructive" strokeWidth={1.75} />}
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={cn("text-lg font-semibold tracking-tight", result.valid ? "text-success" : "text-destructive")}>
+                    {result.valid ? "LOG VERIFIED" : "TAMPERING DETECTED"}
+                  </span>
+                  <Badge variant={result.chain.valid ? "secondary" : "destructive"}>chain {result.chain.valid ? "intact" : "broken"}</Badge>
+                  <Badge variant={result.problems.length === 0 ? "secondary" : "destructive"}>
+                    {result.checkpoints.length} checkpoint{result.checkpoints.length === 1 ? "" : "s"}
+                    {result.problems.length === 0 ? " agree" : ` / ${result.problems.length} problem${result.problems.length === 1 ? "" : "s"}`}
+                  </Badge>
+                  <span className="text-sm text-muted-foreground">{result.chain.entriesChecked} entries checked</span>
+                </div>
+                <p className="text-sm text-foreground">{result.explanation}</p>
+              </div>
             </div>
 
-            <p className="max-w-prose rounded-md border p-3 text-sm">{result.explanation}</p>
-
             {result.chain.firstBreak && (
-              <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+              <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
                 <div className="font-medium">
                   First chain break at sequence {result.chain.firstBreak.seq} &mdash; {result.chain.firstBreak.problem}
                 </div>
-                <p className="break-all font-mono text-xs">{result.chain.firstBreak.detail}</p>
+                <p className="font-mono text-xs [overflow-wrap:anywhere]">{result.chain.firstBreak.detail}</p>
                 {result.chain.breaks.length > 1 && (
                   <p className="text-xs text-muted-foreground">
                     {result.chain.breaks.length - 1} further break{result.chain.breaks.length - 1 === 1 ? "" : "s"} downstream,
@@ -142,18 +155,18 @@ export function IntegrityChecker({
             {result.problems.length > 0 && (
               <ul className="space-y-2">
                 {result.problems.map((problem) => (
-                  <li key={`${problem.checkpointId}-${problem.problem}`} className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                  <li key={`${problem.checkpointId}-${problem.problem}`} className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
                     <div className="font-medium">
                       Checkpoint at sequence {problem.seq} &mdash; {problem.problem}
                     </div>
-                    <p className="break-all font-mono text-xs">{problem.detail}</p>
+                    <p className="font-mono text-xs [overflow-wrap:anywhere]">{problem.detail}</p>
                   </li>
                 ))}
               </ul>
             )}
 
             <details className="text-sm text-muted-foreground">
-              <summary className="cursor-pointer">What this check cannot detect</summary>
+              <summary className="w-fit cursor-pointer hover:text-foreground">What this check cannot detect</summary>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 {result.limitations.map((limitation) => (
                   <li key={limitation}>{limitation}</li>

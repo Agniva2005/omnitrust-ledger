@@ -1,9 +1,11 @@
 "use client";
 
+import { FileSignature, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { SecurityClassBadge } from "@/components/security-class-badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 export type CertificateOption = {
   id: string;
@@ -11,6 +13,8 @@ export type CertificateOption = {
   displayName: string;
   serialNumber: string;
   expiresAt: string;
+  securityClass?: string;
+  signatureBytes?: string;
 };
 
 export function SignPanel({
@@ -27,7 +31,7 @@ export function SignPanel({
 
   if (certificates.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
         You have no valid certificate to sign with. Issue one on the Certificates page first.
       </p>
     );
@@ -57,34 +61,53 @@ export function SignPanel({
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      <div className="space-y-1.5">
-        <Label htmlFor="certificate">Signing certificate</Label>
-        <select
-          id="certificate"
-          className="flex h-9 w-full max-w-lg rounded-md border border-input bg-transparent px-3 text-sm"
-          value={certificateId}
-          onChange={(event) => setCertificateId(event.target.value)}
-        >
-          {certificates.map((certificate) => (
-            <option key={certificate.id} value={certificate.id}>
-              {certificate.displayName} &middot; serial {certificate.serialNumber.slice(0, 12)}...
-              &middot; expires {certificate.expiresAt.slice(0, 10)}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-muted-foreground">
-          The certificate determines the algorithm and the key. Nothing here selects an algorithm
-          directly.
-        </p>
-      </div>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">Signing certificate</legend>
+        <p className="text-xs text-muted-foreground">The certificate determines the algorithm and the key. Nothing here selects an algorithm directly.</p>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {certificates.map((certificate) => {
+            const selected = certificate.id === certificateId;
+            return (
+              <label
+                key={certificate.id}
+                className={cn(
+                  "relative flex cursor-pointer flex-col gap-2 rounded-lg border bg-card p-3 text-sm shadow-card transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+                  selected ? "border-primary/60 bg-accent/60" : "hover:border-foreground/20",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="certificate"
+                  value={certificate.id}
+                  checked={selected}
+                  onChange={() => setCertificateId(certificate.id)}
+                  className="sr-only"
+                />
+                <span className="flex items-start justify-between gap-2">
+                  <span className="font-medium">{certificate.displayName}</span>
+                  <span aria-hidden className={cn("mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border", selected ? "border-primary" : "border-input")}>
+                    {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
+                  </span>
+                </span>
+                {certificate.securityClass && <SecurityClassBadge securityClass={certificate.securityClass} />}
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  serial {certificate.serialNumber.slice(0, 12)}… · expires {certificate.expiresAt.slice(0, 10)}
+                  {certificate.signatureBytes ? ` · ${certificate.signatureBytes} signature` : ""}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
 
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
       )}
 
       <Button type="submit" disabled={pending}>
+        {pending ? <Loader2 aria-hidden className="animate-spin" /> : <FileSignature aria-hidden />}
         {pending ? "Signing the document hash..." : "Sign document"}
       </Button>
     </form>
