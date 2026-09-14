@@ -71,7 +71,7 @@ import {
   sortAttributes,
 } from "@/lib/pki/cms";
 import { RevocationStatusUnavailableError, revocationStatus } from "@/lib/pki/crl";
-import { TSA_ALGORITHM } from "@/lib/pki/policy";
+import { tsaAlgorithm } from "@/lib/pki/policy";
 import { evaluateRevocation } from "@/lib/pki/revocation";
 
 export const TSA_SUBJECT =
@@ -131,7 +131,8 @@ export async function ensureTimestampAuthority(): Promise<TimestampAuthority> {
   configureCertificateProvider();
   const ca = await getRootCa();
   const root = caCertificate(ca);
-  const keys = await orchestrator.generateKeyPair(TSA_ALGORITHM);
+  const algorithm = tsaAlgorithm();
+  const keys = await orchestrator.generateKeyPair(algorithm);
 
   const notBefore = new Date();
   const notAfter = new Date(Math.min(notBefore.getTime() + TSA_VALIDITY_MS, root.notAfter.getTime()));
@@ -161,7 +162,7 @@ export async function ensureTimestampAuthority(): Promise<TimestampAuthority> {
     data: {
       issuerCaId: ca.id,
       name: TSA_SUBJECT,
-      algorithm: TSA_ALGORITHM,
+      algorithm,
       policyOid: newPolicyOid(),
       serialNumber,
       certPem: certificate.toString("pem"),

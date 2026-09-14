@@ -104,15 +104,20 @@ export const mlDsa65Provider = {
       sign: true,
       verify: true,
       x509Subject: true,
-      x509Issuer: false,
+      x509Issuer: true,
     },
     securityNotes: [
       "Public keys and signatures are far larger than the elliptic-curve alternatives: 1952 and 3309 bytes.",
-      "Cannot act as this installation's CA: certificate signing uses WebCrypto, where Node marks ML-DSA as experimental.",
+      "Can act as this installation's CA, Time-Stamp Authority or audit signer when an installation selects it (PKI_CA_ALGORITHM and related settings). Certificates and CRLs are then signed through Node's WebCrypto ML-DSA, which Node 24 marks experimental and announces with a runtime warning; tests/pki/pq-issuer.test.ts cross-checks the certificates with OpenSSL 3.5.",
     ],
   },
 
-  certificateSigning: null,
+  certificateSigning: {
+    keyImport: { name: "ML-DSA-65" },
+    signing: { name: "ML-DSA-65" },
+    // RFC 9881: id-ml-dsa-65, with the parameters field absent.
+    algorithmIdentifierOid: "2.16.840.1.101.3.4.3.18",
+  },
 
   async generateKeyPair(): Promise<KeyPairPem> {
     const { publicKey, privateKey } = await generateMlDsaKeyPair(KEY_TYPE, {

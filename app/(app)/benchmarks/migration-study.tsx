@@ -17,6 +17,12 @@ type StudyFile = {
   parameters: { iterations: number; microIterations: number; warmupRounds?: number; seed?: number };
   isolation: { developmentDatabaseUnchanged: boolean };
   design?: { interleaving: string; seed: number };
+  /** Schema 3 and later: which algorithms the trust services signed with in this run. */
+  trustServices?: {
+    ca: { displayName: string; securityClass: string; certificateDerBytes: number };
+    tsa: { displayName: string; securityClass: string; certificateDerBytes: number };
+    emptyCrlDerBytes: number | null;
+  };
   methodology: string[];
   notes: string[];
   algorithms: {
@@ -116,6 +122,28 @@ export function MigrationStudySection({ study }: { study: StudyFile }) {
           {!study.design && <Badge variant="warning">block design: order effects not controlled</Badge>}
         </div>
       </div>
+
+      {study.trustServices && (
+        <dl className="grid gap-3 sm:grid-cols-3">
+          {[
+            { label: "Root CA signs with", service: study.trustServices.ca },
+            { label: "Time-Stamp Authority signs with", service: study.trustServices.tsa },
+          ].map(({ label, service }) => (
+            <div key={label} className="rounded-lg border bg-muted/30 p-3">
+              <dt className="text-xs text-muted-foreground">{label}</dt>
+              <dd className="mt-1 flex flex-wrap items-center gap-2 text-sm font-medium">
+                {service.displayName} <SecurityClassBadge securityClass={service.securityClass} />
+              </dd>
+              <dd className="mt-1 font-mono text-[11px] text-muted-foreground">certificate {service.certificateDerBytes.toLocaleString()} bytes (DER)</dd>
+            </div>
+          ))}
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <dt className="text-xs text-muted-foreground">CRL with no entries</dt>
+            <dd className="mt-1 font-mono text-sm tabular-nums">{study.trustServices.emptyCrlDerBytes?.toLocaleString() ?? "not measured"} bytes</dd>
+            <dd className="mt-1 text-[11px] text-muted-foreground">The trust services&apos; algorithms are installation policy, fixed within a run.</dd>
+          </div>
+        </dl>
+      )}
 
       <Card>
         <CardHeader>

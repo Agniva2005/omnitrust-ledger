@@ -29,7 +29,7 @@ import { pemBody } from "@/lib/crypto/pem";
 import { decryptString, encryptString } from "@/lib/crypto/symmetric";
 import { prisma } from "@/lib/db";
 import { caCertificate, caSigningAlgorithm, caSigningKey, getRootCa } from "@/lib/pki/ca";
-import { AUDIT_SIGNER_ALGORITHM } from "@/lib/pki/policy";
+import { auditSignerAlgorithm } from "@/lib/pki/policy";
 import { issueTimestampToken, verifyTimestampToken } from "@/lib/pki/tsa";
 
 export const AUDIT_SIGNER_SUBJECT =
@@ -61,7 +61,8 @@ export async function ensureAuditSigner(): Promise<AuditSigner> {
   configureCertificateProvider();
   const ca = await getRootCa();
   const root = caCertificate(ca);
-  const keys = await orchestrator.generateKeyPair(AUDIT_SIGNER_ALGORITHM);
+  const algorithm = auditSignerAlgorithm();
+  const keys = await orchestrator.generateKeyPair(algorithm);
   const notBefore = new Date();
   const notAfter = new Date(Math.min(notBefore.getTime() + SIGNER_VALIDITY_MS, root.notAfter.getTime()));
   const serialNumber = randomPositiveSerial();
@@ -85,7 +86,7 @@ export async function ensureAuditSigner(): Promise<AuditSigner> {
     data: {
       issuerCaId: ca.id,
       name: AUDIT_SIGNER_SUBJECT,
-      algorithm: AUDIT_SIGNER_ALGORITHM,
+      algorithm,
       serialNumber,
       certPem: certificate.toString("pem"),
       encryptedPrivateKey: encryptString(keys.privateKeyPem),

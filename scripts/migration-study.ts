@@ -2,6 +2,11 @@
 // hybrid algorithms costs across the whole trust chain, measured through the real services.
 //
 //   npm run study:migration [-- --iterations 30 --micro-iterations 200 --warmup 3 --seed 20260914 --output <file>]
+//                           [--ca-algorithm <id> --tsa-algorithm <id> --audit-signer-algorithm <id>]
+//
+// The trust-service options set the installation policy (lib/pki/policy.ts) of the throwaway
+// installation, so the same study measures what changes when the CA and the Time-Stamp Authority
+// themselves migrate, not only the end-entity signatures. Without them the defaults apply.
 //
 // The parent process builds a throwaway installation under storage/migration-study/<run id> (its own
 // SQLite database, document storage, master key and JWT secret), migrates it, and runs this file
@@ -34,7 +39,8 @@ import os from "node:os";
 import path from "node:path";
 import { sha256Hex } from "../lib/crypto/hash";
 
-export const MIGRATION_STUDY_SCHEMA_VERSION = 2;
+/** 3: adds trustServices (the CA and TSA algorithms and certificate sizes, and the empty CRL size). */
+export const MIGRATION_STUDY_SCHEMA_VERSION = 3;
 
 const ROOT = process.cwd();
 const NODE = process.execPath;
@@ -274,8 +280,11 @@ async function worker(resultFile: string) {
   console.log("Revocation list growth and anchoring commitments...");
   const crlGrowth = {} as Record<Algorithm, number>;
   const commitmentBytes = {} as Record<Algorithm, number>;
+  let emptyCrlDerBytes: number | null = null;
   for (const algorithm of ALGORITHMS) {
     const before = await issueCrl({ actorUserId: admin.userId });
+    // Nothing has been revoked before the first iteration, so its list carries no entries.
+    emptyCrlDerBytes ??= before.der.length;
     const revocable = await issueCertificate({ actor: signer, algorithm });
     await revokeCertificate({ actor: admin, certificateId: revocable.id, reason: "superseded" });
     const after = await prisma.revocationList.findFirstOrThrow({ orderBy: { crlNumber: "desc" } });
@@ -307,6 +316,18 @@ async function worker(resultFile: string) {
     };
   });
 
+  const ca = await prisma.certificateAuthority.findFirstOrThrow();
+  const tsa = await prisma.timestampAuthority.findFirstOrThrow({ where: { status: "ACTIVE" } });
+  const trustServiceOf = (algorithm: string) => {
+    const metadata = orchestrator.describe(algorithm as Algorithm);
+    return { algorithm, displayName: metadata.displayName, securityClass: metadata.securityClass };
+  };
+  const trustServices = {
+    ca: { ...trustServiceOf(ca.algorithm), certificateDerBytes: pemBody(ca.certPem).length },
+    tsa: { ...trustServiceOf(tsa.algorithm), certificateDerBytes: pemBody(tsa.certPem).length },
+    emptyCrlDerBytes,
+  };
+
   const comparisons = Object.fromEntries(OPERATIONS.map((operation) => [operation, pairwiseComparisons(samples[operation])]));
   const agilityOverhead = ALGORITHMS.map((algorithm) => ({
     algorithm,
@@ -322,6 +343,7 @@ async function worker(resultFile: string) {
         seed: SEED,
         measuredRounds: rounds,
       },
+      trustServices,
       algorithms: perAlgorithm,
       comparisons,
       agilityOverhead,
@@ -346,6 +368,15 @@ async function parent() {
     SECURITY_LAB_ROOT: path.join(runDirectory, "lab"),
     JWT_SECRET: randomBytes(32).toString("hex"),
   };
+  // Trust-service policy for the throwaway installation; validated by lib/pki/policy.ts in the worker.
+  for (const [flag, variable] of [
+    ["--ca-algorithm", "PKI_CA_ALGORITHM"],
+    ["--tsa-algorithm", "PKI_TSA_ALGORITHM"],
+    ["--audit-signer-algorithm", "PKI_AUDIT_SIGNER_ALGORITHM"],
+  ] as const) {
+    const value = stringArg(flag);
+    if (value) env[variable] = value;
+  }
   const childEnv = { ...process.env, ...env };
   const developmentDatabase = path.join(ROOT, "prisma", "dev.db");
   const fingerprint = (file: string) => (fs.existsSync(file) ? sha256Hex(fs.readFileSync(file)) : null);
@@ -369,6 +400,7 @@ async function parent() {
     if (run.status !== 0) throw new Error(`the study worker exited with ${run.status}`);
 
     const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+    const { ca, tsa } = result.trustServices as { ca: { displayName: string }; tsa: { displayName: string } };
     const developmentAfter = fingerprint(developmentDatabase);
     const finishedAt = new Date();
     const report = {
@@ -394,7 +426,7 @@ async function parent() {
       notes: [
         "Absolute timings depend on this machine and on SQLite and filesystem latency; compare algorithms within one run.",
         "Measurements run sequentially in one process; garbage collection is not forced.",
-        "The time-stamp authority and the CA sign with a fixed classical algorithm in every run, so time-stamp token and CRL sizes are expected not to depend on the end-entity algorithm; the study measures that rather than assuming it.",
+        `In this run the CA signs with ${ca.displayName} and the Time-Stamp Authority with ${tsa.displayName}, fixed for every end-entity algorithm, so time-stamp token and CRL sizes are expected not to depend on the end-entity algorithm; the study measures that rather than assuming it. Compare runs with different trust-service algorithms to see what migrating the CA and TSA themselves changes.`,
         "One machine only: cross-machine reproducibility is not established by a single run.",
       ],
       ...result,

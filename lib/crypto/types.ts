@@ -107,6 +107,12 @@ export type AlgorithmMetadata<Id extends string = string> = {
 export type CertificateSigningParams = {
   keyImport: { name: string; namedCurve?: string; hash?: string };
   signing: { name: string; hash?: string; saltLength?: number };
+  /**
+   * The signature algorithm OID, for algorithms newer than the X.509 library's own table (such as
+   * ML-DSA). lib/crypto/keys.ts registers the mapping between `signing.name` and this OID, encoded
+   * with absent parameters as RFC 9881 requires. Omitted when the library already knows the algorithm.
+   */
+  algorithmIdentifierOid?: string;
 };
 
 export interface SignatureProvider<Id extends string = string> {

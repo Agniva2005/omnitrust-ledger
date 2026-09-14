@@ -16,7 +16,7 @@ import {
 import { assertAlgorithm, orchestrator } from "@/lib/crypto/orchestrator";
 import { decryptString, encryptString } from "@/lib/crypto/symmetric";
 import { prisma } from "@/lib/db";
-import { CA_ALGORITHM } from "@/lib/pki/policy";
+import { caAlgorithm } from "@/lib/pki/policy";
 
 export const CA_SUBJECT =
   "CN=OmniTrust Demo Root CA,O=OmniTrust Ledger,OU=Demo PKI - Not For Production Use";
@@ -30,9 +30,10 @@ export async function ensureRootCa(): Promise<CertificateAuthority> {
 
   configureCertificateProvider();
 
-  const keys = await orchestrator.generateKeyPair(CA_ALGORITHM);
-  const privateKey = await importIssuerPrivateKey(CA_ALGORITHM, keys.privateKeyPem);
-  const publicKey = await importIssuerPublicKey(CA_ALGORITHM, keys.publicKeyPem);
+  const algorithm = caAlgorithm();
+  const keys = await orchestrator.generateKeyPair(algorithm);
+  const privateKey = await importIssuerPrivateKey(algorithm, keys.privateKeyPem);
+  const publicKey = await importIssuerPublicKey(algorithm, keys.publicKeyPem);
 
   const notBefore = new Date();
   const notAfter = new Date(notBefore);
@@ -44,7 +45,7 @@ export async function ensureRootCa(): Promise<CertificateAuthority> {
     notBefore,
     notAfter,
     keys: { privateKey, publicKey },
-    signingAlgorithm: certificateSigningAlgorithm(CA_ALGORITHM),
+    signingAlgorithm: certificateSigningAlgorithm(algorithm),
     extensions: [
       new x509.BasicConstraintsExtension(true, 1, true),
       new x509.KeyUsagesExtension(
@@ -57,7 +58,7 @@ export async function ensureRootCa(): Promise<CertificateAuthority> {
   const ca = await prisma.certificateAuthority.create({
     data: {
       name: CA_SUBJECT,
-      algorithm: CA_ALGORITHM,
+      algorithm,
       certPem: certificate.toString("pem"),
       encryptedPrivateKey: encryptString(keys.privateKeyPem),
     },
@@ -67,7 +68,7 @@ export async function ensureRootCa(): Promise<CertificateAuthority> {
     action: "CA_CREATED",
     targetType: "CertificateAuthority",
     targetId: ca.id,
-    metadata: { algorithm: CA_ALGORITHM, subject: CA_SUBJECT, notAfter: notAfter.toISOString() },
+    metadata: { algorithm, subject: CA_SUBJECT, notAfter: notAfter.toISOString() },
   });
   return ca;
 }
