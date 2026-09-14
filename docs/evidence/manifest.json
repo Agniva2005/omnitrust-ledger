@@ -1,0 +1,33 @@
+{
+  "description": "Committed evidence files, with digests over LF-normalised content. Regenerate with npm run evidence:manifest.",
+  "files": [
+    {
+      "path": "benchmarks/2026-09-13-phase10-n200.json",
+      "sha256": "5b70fa0547c2c899a54b06a4cf28df05764346092d9e489563009ec4f0745e43",
+      "bytes": 25456,
+      "kind": "benchmark",
+      "generatedAt": "2026-09-13T23:05:00.869Z",
+      "gitCommit": "bb9ce21",
+      "gitTreeDirty": true,
+      "cpu": "AMD Ryzen 7 8840HS w/ Radeon 780M Graphics",
+      "seed": null,
+      "iterations": 200,
+      "caAlgorithm": null,
+      "tsaAlgorithm": null
+    },
+    {
+      "path": "migration-study/2026-09-13-phase17-n30-seed20260914-classical-issuers.json",
+      "sha256": "1e3995e7024e6ae11720a910724cc83cc4d3fabaf33c8a8a6328d2c74cc8612d",
+      "bytes": 146600,
+      "kind": "migration-study",
+      "generatedAt": "2026-09-13T23:17:03.871Z",
+      "gitCommit": "7ae5558",
+      "gitTreeDirty": true,
+      "cpu": "AMD Ryzen 7 8840HS w/ Radeon 780M Graphics",
+      "seed": 20260914,
+      "iterations": 30,
+      "caAlgorithm": null,
+      "tsaAlgorithm": null
+    }
+  ]
+}
