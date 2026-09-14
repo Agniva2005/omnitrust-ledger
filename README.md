@@ -57,7 +57,8 @@ All four use the password `demo1234`.
 | Signatures verify outside the application | Document page → CMS (.p7s) | `openssl cms -verify` for RSA-PSS and ECDSA; independent libraries for Ed25519 and ML-DSA |
 | The audit log is tamper-evident, including against a consistent rewrite | Audit log → Verify log integrity | Hash chain plus signed, time-stamped checkpoints |
 | Commitments can be anchored without putting data on a chain | Anchoring page | RFC 6962 Merkle roots on a local chain; only the root and leaf count are sent |
-| The controls hold against real attacks | Security Lab | 15 scenarios run in disposable sandboxes |
+| The controls hold against real attacks | Security Lab; [`docs/threat-model.md`](docs/threat-model.md) | 16 scenarios run in disposable sandboxes, each tied to an adversary capability; `npm run lab:evaluate` records the results as evidence |
+| The trust services themselves can migrate to post-quantum | Dashboard trust services, after setup with `PKI_CA_ALGORITHM=ML_DSA_65` | An ML-DSA-65 root CA, TSA and audit signer by installation policy; `tests/pki/pq-issuer.test.ts` cross-checks the certificates with OpenSSL 3.5 |
 | Performance is measured, with its uncertainty | Benchmarks page | n, median, mean with 95% CI, SD, outliers, recorded environment |
 
 ---
@@ -138,12 +139,51 @@ Policy `omnitrust-timestamp-aware-revocation/1` (`lib/pki/revocation.ts`):
 | EdDSA Ed25519 | `@noble/ed25519` | RFC 8032, deterministic, 64-byte signatures |
 | ML-DSA-65 | `node:crypto` (OpenSSL 3.5) | FIPS 204, NIST PQ category 3, 3309-byte signatures; cross-checked against `@noble/post-quantum` |
 | Hashing | `node:crypto` | SHA-256 (SHA-512 for EdDSA and ML-DSA CMS digests) |
-| Certificates | `@peculiar/x509` | X.509 v3 under a local root CA (ECDSA P-256) |
+| Certificates | `@peculiar/x509` | X.509 v3 under a local root CA: ECDSA P-256 by default, or ML-DSA-65 by installation policy (see below) |
 | Time-stamps | local RFC 3161 TSA | CMS SignedData over TSTInfo with signingCertificateV2; verified by `openssl ts` in tests |
 | Signature export | CMS / PKCS#7 (RFC 5652) | Detached, with its own time-stamp over the signature value; no CAdES conformance is claimed |
 | At rest | `node:crypto` | AES-256-GCM for document blobs and private keys |
 
 Nothing is hand-rolled. The stored signature covers the raw 32 bytes of the document's SHA-256, identically for all algorithms.
+
+### Post-quantum trust services
+
+Which algorithm the root CA, the Time-Stamp Authority and the audit signer use is installation policy (`lib/pki/policy.ts`), not code. Set it before the service is first created, for the CA before `npm run setup`:
+
+```bash
+PKI_CA_ALGORITHM=ML_DSA_65 PKI_TSA_ALGORITHM=ML_DSA_65 PKI_AUDIT_SIGNER_ALGORITHM=ML_DSA_65 npm run setup
+```
+
+The rules:
+- **CA.** `PKI_CA_ALGORITHM` must be an algorithm that can sign X.509 certificates: RSA-PSS, ECDSA P-256, Ed25519 or ML-DSA-65.
+- **TSA and audit signer.** They sign CMS, so they also accept the composite ML-DSA-65 + ECDSA P-256.
+- **Binding.** An existing service keeps the algorithm recorded when it was created.
+
+How it works, and its limits:
+- **Signing path.** An ML-DSA-65 CA signs certificates and CRLs through Node 24's WebCrypto ML-DSA, which Node marks experimental and announces with a runtime warning.
+- **Independent check.** The certificates carry the RFC 9881 identifier with absent parameters, and OpenSSL 3.5 (through `node:crypto`) verifies them in `tests/pki/pq-issuer.test.ts`.
+- **Composite CA.** Not implemented: WebCrypto has no composite algorithm.
+- **External CLI checks.** The OpenSSL 3.2 and 3.4 command-line tools cannot check anything a post-quantum CA signs, so `openssl cms -verify` against such an installation fails even for classical end-entity signatures.
+
+`npm run study:migration -- --ca-algorithm ML_DSA_65 --tsa-algorithm ML_DSA_65` measures what that migration costs, and `npm run study:compare` puts runs side by side.
+
+### Master-key custody
+
+The master key encrypts every private key and document blob. `npm run setup` writes it as a plaintext file. `npm run key:custody` reports and changes how that file is stored, without changing the key, so everything stays readable:
+
+```bash
+npm run key:custody -- status
+npm run key:custody -- protect --method dpapi --yes        # Windows: bound to the current Windows user
+npm run key:custody -- protect --method passphrase --yes   # reads OMNITRUST_NEW_MASTER_PASSPHRASE
+```
+
+**Passphrase protection:**
+- **How it wraps.** The key is wrapped with AES-256-GCM under an scrypt-derived key (N = 2^17), and the file header is authenticated.
+- **Starting the app.** Start it with `OMNITRUST_MASTER_PASSPHRASE` set in the process environment. Do not put it in `.env`, which sits beside the key.
+
+**Loss.** Losing the passphrase, or the Windows profile behind a DPAPI file, makes every key and document unreadable.
+
+**What it protects against.** Either option protects a *copied* key file: the Security Lab's `stolen-key-file` scenario tests this. Neither is an HSM or KMS, and neither helps against someone who controls the running host.
 
 ### Verify without trusting this application
 
@@ -175,6 +215,11 @@ npm run export:signature -- audit-report-ed25519.txt
 | `npm run chain` | Local Hardhat chain for anchoring (in-memory; state is lost when it stops) |
 | `npm run contract:compile` | Recompile the anchor contract; `-- --check` confirms the committed artifact |
 | `npm run check:boundary` | Confirm no algorithm-specific code exists outside `lib/crypto/` |
+| `npm run study:migration` | Measure the post-quantum migration across the trust chain in a throwaway installation; `-- --ca-algorithm <id> --tsa-algorithm <id>` migrates the trust services too |
+| `npm run study:compare -- <a.json> <b.json>` | Compare study runs: precision, sizes, and whether significant differences replicate |
+| `npm run lab:evaluate` | Run every Security Lab scenario in a sandbox; writes `docs/evidence/security-lab/evaluation.json` and the tables in `docs/threat-model.md` |
+| `npm run evidence:manifest` | Regenerate the SHA-256 manifest of committed evidence under `docs/evidence/` |
+| `npm run key:custody` | Show or change how the master key file is protected (plaintext, passphrase or Windows DPAPI) |
 | `npm run export:signature -- <file>` | Export a stored signature, its CMS form and the certificates for external verification |
 | `npm run db:seed` | Re-run the seed only |
 | `npm run db:reset` | Delete and recreate the development database |
@@ -191,6 +236,8 @@ Created by `npm run setup`; see `.env.example`.
 | `STORAGE_ROOT` | Where encrypted blobs live |
 | `ANCHOR_RPC_URL` | Chain for anchoring; default `http://127.0.0.1:8545` |
 | `SECURITY_LAB_ROOT` | Where Security Lab sandboxes are created; default `storage/lab` |
+| `PKI_CA_ALGORITHM`, `PKI_TSA_ALGORITHM`, `PKI_AUDIT_SIGNER_ALGORITHM` | Optional: the trust services' algorithms, bound when each service is created; default `ECDSA_P256` |
+| `OMNITRUST_MASTER_PASSPHRASE` | Only for a passphrase-protected master key; set in the process environment, not in `.env` |
 
 ---
 
@@ -225,11 +272,15 @@ The tests exercise failure paths with real cryptography and real data, not mocks
 
 **PKI and trust**
 - The root CA, Time-Stamp Authority and audit signer are **local and trusted by nothing outside this installation**.
+- They can be post-quantum (ML-DSA-65), but the CA cannot be composite.
+- A running installation cannot change its CA algorithm: migrating means a new installation.
 - Revocation is published as CA-signed CRLs. There is **no OCSP**, no delta CRL, **no intermediate CA**, and no path-length or name-constraint enforcement beyond the root's basic constraints.
 - Certificate renewal and an operator key-rotation workflow are **not implemented**; the key lifecycle states exist, but only issuance and revocation move keys between them.
 
 **Keys and secrets**
-- Private keys are encrypted with a key in a **local file** (`storage/keys/master.key`), not an HSM or KMS. Anyone who can read the filesystem can read every private key. Its restrictive file mode is not enforced on Windows.
+- **Where private keys are held.** Private keys are encrypted with a master key in a **local file** (`storage/keys/master.key`), not an HSM or KMS.
+- **Default protection.** By default that file is plaintext: anyone who can read the filesystem can read every private key. Its restrictive file mode is not enforced on Windows.
+- **Optional protection.** `npm run key:custody` can wrap the file under a passphrase or Windows DPAPI. That protects a copied file, not a compromised running host.
 - The four demo accounts share a password shown on the login page.
 
 **Application security**

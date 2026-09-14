@@ -28,6 +28,68 @@
       "iterations": 30,
       "caAlgorithm": null,
       "tsaAlgorithm": null
+    },
+    {
+      "path": "migration-study/2026-09-14-comparison.md",
+      "sha256": "6a569e6eb5309aeb3a88e151b9ca3f621dd63836d798f7e05ca6038c83eacc83",
+      "bytes": 8470,
+      "kind": "report"
+    },
+    {
+      "path": "migration-study/2026-09-14-n100-seed20260914-classical-issuers.json",
+      "sha256": "378235e887d29fa22091afd830db679065cd89e24a9b522e0c72a193c7c617f7",
+      "bytes": 263324,
+      "kind": "migration-study",
+      "generatedAt": "2026-09-14T06:23:23.211Z",
+      "gitCommit": "885e119",
+      "gitTreeDirty": true,
+      "cpu": "AMD Ryzen 7 8840HS w/ Radeon 780M Graphics",
+      "seed": 20260914,
+      "iterations": 100,
+      "caAlgorithm": "ECDSA P-256",
+      "tsaAlgorithm": "ECDSA P-256"
+    },
+    {
+      "path": "migration-study/2026-09-14-n100-seed20260914-mldsa65-issuers.json",
+      "sha256": "f259018ee599ec5434b76926b020e233df88a9a1126fca0c49a92fcdb408c49c",
+      "bytes": 263089,
+      "kind": "migration-study",
+      "generatedAt": "2026-09-14T06:26:34.495Z",
+      "gitCommit": "885e119",
+      "gitTreeDirty": true,
+      "cpu": "AMD Ryzen 7 8840HS w/ Radeon 780M Graphics",
+      "seed": 20260914,
+      "iterations": 100,
+      "caAlgorithm": "ML-DSA-65",
+      "tsaAlgorithm": "ML-DSA-65"
+    },
+    {
+      "path": "migration-study/2026-09-14-n100-seed20260915-classical-issuers.json",
+      "sha256": "43ae540614261b4c6f115eaea37b141161c7f32f695cac835f0a0cf7d11c7ee9",
+      "bytes": 263304,
+      "kind": "migration-study",
+      "generatedAt": "2026-09-14T06:24:57.098Z",
+      "gitCommit": "885e119",
+      "gitTreeDirty": true,
+      "cpu": "AMD Ryzen 7 8840HS w/ Radeon 780M Graphics",
+      "seed": 20260915,
+      "iterations": 100,
+      "caAlgorithm": "ECDSA P-256",
+      "tsaAlgorithm": "ECDSA P-256"
+    },
+    {
+      "path": "security-lab/evaluation.json",
+      "sha256": "cab643bd3990c7122c8c2265dd81603c607588426b1afe96cf35d879ca7f2ffb",
+      "bytes": 15362,
+      "kind": "security-lab-evaluation",
+      "generatedAt": "2026-09-14T06:28:00.387Z",
+      "gitCommit": "885e119",
+      "gitTreeDirty": true,
+      "cpu": "AMD Ryzen 7 8840HS w/ Radeon 780M Graphics",
+      "seed": null,
+      "iterations": null,
+      "caAlgorithm": null,
+      "tsaAlgorithm": null
     }
   ]
 }

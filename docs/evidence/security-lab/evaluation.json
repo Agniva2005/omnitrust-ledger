@@ -1,0 +1,424 @@
+{
+  "generatedAt": "2026-09-14T06:28:00.387Z",
+  "startedAt": "2026-09-14T06:27:26.443Z",
+  "environment": {
+    "node": "v24.14.0",
+    "openssl": "3.5.5",
+    "platform": "win32 10.0.26200",
+    "cpu": "AMD Ryzen 7 8840HS w/ Radeon 780M Graphics",
+    "gitCommit": "885e119",
+    "gitTreeDirty": true
+  },
+  "method": "Each scenario runs once in a separate process with its own freshly created database, document storage and master key, deleted afterwards. HELD: the control behaved as the catalogue states. FAILED: it did not. ERROR: the scenario could not complete.",
+  "summary": {
+    "scenarios": 16,
+    "held": 16,
+    "failed": 0,
+    "errored": 0
+  },
+  "results": [
+    {
+      "id": "control-untouched",
+      "title": "Control: an untouched signed document",
+      "category": "control",
+      "adversary": "none",
+      "property": "none (control)",
+      "defence": "Shows the lab is not rigged to report failures: an honest document must verify.",
+      "expected": "Verdict VALID",
+      "outcome": "HELD",
+      "observed": "Verification returned VALID",
+      "steps": [
+        "Signed a fresh document",
+        "Verified it without any change"
+      ],
+      "evidence": {
+        "outcome": "VALID",
+        "reason": null,
+        "failedSteps": []
+      },
+      "durationMs": 1907,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "document-substitution",
+      "title": "Substitute the stored document",
+      "category": "documents",
+      "adversary": "storage-write",
+      "property": "document integrity",
+      "defence": "Verification recomputes SHA-256 from the stored bytes and compares it with the signed hash.",
+      "expected": "INVALID / HASH_MISMATCH",
+      "outcome": "HELD",
+      "observed": "Verification returned INVALID / HASH_MISMATCH",
+      "steps": [
+        "Signed \"Pay the supplier 1,000.00\"",
+        "Replaced the stored bytes with validly encrypted \"Pay the supplier 9,000.00\"",
+        "Verified"
+      ],
+      "evidence": {
+        "outcome": "INVALID",
+        "reason": "HASH_MISMATCH",
+        "failedSteps": [
+          "signature-verification: FAIL",
+          "hash-comparison: FAIL"
+        ]
+      },
+      "durationMs": 1877,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "ciphertext-bitflip",
+      "title": "Flip one bit of the encrypted blob",
+      "category": "documents",
+      "adversary": "storage-write",
+      "property": "document integrity",
+      "defence": "The GCM authentication tag fails, which verification reports as tampering.",
+      "expected": "INVALID / HASH_MISMATCH",
+      "outcome": "HELD",
+      "observed": "Verification returned INVALID / HASH_MISMATCH",
+      "steps": [
+        "Signed a document",
+        "Flipped the last bit of its ciphertext on disk",
+        "Verified"
+      ],
+      "evidence": {
+        "outcome": "INVALID",
+        "reason": "HASH_MISMATCH",
+        "failedSteps": [
+          "recompute-hash: FAIL",
+          "signature-verification: SKIPPED",
+          "hash-comparison: SKIPPED"
+        ]
+      },
+      "durationMs": 2020,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "signature-corruption",
+      "title": "Corrupt the signature value",
+      "category": "signatures",
+      "adversary": "database-write",
+      "property": "signature authenticity",
+      "defence": "Cryptographic verification under the certificate's public key.",
+      "expected": "INVALID / SIGNATURE_INVALID",
+      "outcome": "HELD",
+      "observed": "Verification returned INVALID / SIGNATURE_INVALID",
+      "steps": [
+        "Signed a document",
+        "Flipped a bit in the stored signature",
+        "Verified"
+      ],
+      "evidence": {
+        "outcome": "INVALID",
+        "reason": "SIGNATURE_INVALID",
+        "failedSteps": [
+          "timestamp: FAIL",
+          "signature-verification: FAIL"
+        ]
+      },
+      "durationMs": 1728,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "signature-replay",
+      "title": "Replay a genuine signature onto another document",
+      "category": "signatures",
+      "adversary": "artefact-replay",
+      "property": "signature authenticity",
+      "defence": "The signature covers the document's own hash, so it does not verify for different content.",
+      "expected": "INVALID / SIGNATURE_INVALID",
+      "outcome": "HELD",
+      "observed": "Verification returned INVALID / SIGNATURE_INVALID",
+      "steps": [
+        "Signed \"Contract A\" and \"Contract B\" with the same certificate",
+        "Copied A's signature and time-stamp onto B",
+        "Verified B"
+      ],
+      "evidence": {
+        "outcome": "INVALID",
+        "reason": "SIGNATURE_INVALID",
+        "failedSteps": [
+          "signature-verification: FAIL"
+        ]
+      },
+      "durationMs": 1993,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "algorithm-confusion",
+      "title": "Relabel the signature algorithm",
+      "category": "signatures",
+      "adversary": "database-write",
+      "property": "algorithm binding",
+      "defence": "The algorithm is identified from the certificate's key material, and providers refuse foreign keys.",
+      "expected": "INVALID / ALGORITHM_MISMATCH",
+      "outcome": "HELD",
+      "observed": "Verification returned INVALID / ALGORITHM_MISMATCH",
+      "steps": [
+        "Signed under ECDSA_P256",
+        "Relabelled the signature and certificate records as RSA",
+        "Verified"
+      ],
+      "evidence": {
+        "outcome": "INVALID",
+        "reason": "ALGORITHM_MISMATCH",
+        "failedSteps": [
+          "public-key: FAIL",
+          "signature-verification: SKIPPED"
+        ]
+      },
+      "durationMs": 1898,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "key-substitution",
+      "title": "Point the signature at another certificate",
+      "category": "signatures",
+      "adversary": "database-write",
+      "property": "algorithm binding",
+      "defence": "Key-to-record consistency is checked before any cryptographic operation.",
+      "expected": "INVALID / ALGORITHM_MISMATCH",
+      "outcome": "HELD",
+      "observed": "Verification returned INVALID / ALGORITHM_MISMATCH",
+      "steps": [
+        "Signed a document",
+        "Pointed the signature at a RSA certificate",
+        "Verified"
+      ],
+      "evidence": {
+        "outcome": "INVALID",
+        "reason": "ALGORITHM_MISMATCH",
+        "failedSteps": [
+          "public-key: FAIL",
+          "signature-verification: SKIPPED"
+        ]
+      },
+      "durationMs": 1947,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "compromised-key",
+      "title": "Keep using a signature after key compromise",
+      "category": "pki",
+      "adversary": "key-compromise",
+      "property": "revocation",
+      "defence": "Revocation is read from the CA-signed CRL under the timestamp-aware policy.",
+      "expected": "INVALID / CERTIFICATE_REVOKED",
+      "outcome": "HELD",
+      "observed": "Verification returned INVALID / CERTIFICATE_REVOKED",
+      "steps": [
+        "Signed a document",
+        "Revoked the certificate for keyCompromise with no invalidity date (a new CRL is issued)",
+        "Verified"
+      ],
+      "evidence": {
+        "outcome": "INVALID",
+        "reason": "CERTIFICATE_REVOKED",
+        "failedSteps": [
+          "revocation: FAIL"
+        ]
+      },
+      "durationMs": 1917,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "timestamp-swap",
+      "title": "Swap in another signature's time-stamp",
+      "category": "pki",
+      "adversary": "artefact-replay",
+      "property": "time of existence",
+      "defence": "The token's message imprint must equal SHA-256 of this signature value.",
+      "expected": "INVALID / TIMESTAMP_INVALID",
+      "outcome": "HELD",
+      "observed": "Verification returned INVALID / TIMESTAMP_INVALID",
+      "steps": [
+        "Signed two documents",
+        "Attached the second signature's genuine time-stamp token to the first",
+        "Verified the first"
+      ],
+      "evidence": {
+        "outcome": "INVALID",
+        "reason": "TIMESTAMP_INVALID",
+        "failedSteps": [
+          "timestamp: FAIL"
+        ]
+      },
+      "durationMs": 1942,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "forged-crl",
+      "title": "Forge the revocation list",
+      "category": "pki",
+      "adversary": "database-write",
+      "property": "revocation",
+      "defence": "A CRL is used only after its CA signature, issuer and freshness check; otherwise status is unavailable.",
+      "expected": "UNVERIFIABLE / REVOCATION_STATUS_UNAVAILABLE, never VALID",
+      "outcome": "HELD",
+      "observed": "Verification returned UNVERIFIABLE / REVOCATION_STATUS_UNAVAILABLE",
+      "steps": [
+        "Signed a document",
+        "Altered the newest CA-signed revocation list in the database",
+        "Verified"
+      ],
+      "evidence": {
+        "outcome": "UNVERIFIABLE",
+        "reason": "REVOCATION_STATUS_UNAVAILABLE",
+        "failedSteps": [
+          "revocation: UNAVAILABLE"
+        ]
+      },
+      "durationMs": 1930,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "cms-content-tamper",
+      "title": "Verify an exported CMS signature against altered content",
+      "category": "signatures",
+      "adversary": "offline-content",
+      "property": "document integrity",
+      "defence": "The signed message-digest attribute covers the exact document bytes.",
+      "expected": "CMS verification INVALID",
+      "outcome": "HELD",
+      "observed": "CMS verification: original VALID, altered INVALID",
+      "steps": [
+        "Signed \"Deliver 500 units\" (a detached CMS signature is produced too)",
+        "Verified the CMS signature against the original",
+        "Verified it against \"Deliver 900 units\""
+      ],
+      "evidence": {
+        "original": "VALID",
+        "altered": "INVALID",
+        "explanation": "The document differs from the document that was signed."
+      },
+      "durationMs": 1860,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "stolen-key-file",
+      "title": "Steal a copy of a protected master key file",
+      "category": "keys",
+      "adversary": "file-theft",
+      "property": "key confidentiality",
+      "defence": "The file holds the master key wrapped with AES-256-GCM under a scrypt-derived key (lib/crypto/key-custody.ts); without the passphrase it does not unwrap.",
+      "expected": "Refused without the passphrase and with a guessed one; the right passphrase recovers the same key",
+      "outcome": "HELD",
+      "observed": "Without the passphrase: refused; with a guessed passphrase: refused; with the right passphrase: the same key, which decrypts the copied private key",
+      "steps": [
+        "Signed a document, so an encrypted private key exists in the database",
+        "Wrapped the sandbox master key under a random passphrase (scrypt N=131072, r=8, p=1; AES-256-GCM) and copied the file",
+        "Tried to unwrap the copy with no passphrase",
+        "Tried a guessed passphrase",
+        "Unwrapped it with the right passphrase, as a control"
+      ],
+      "evidence": {
+        "withoutPassphrase": "The master key is passphrase-protected; set OMNITRUST_MASTER_PASSPHRASE in the environment of the process that needs it",
+        "guessedPassphrase": "The master key could not be unwrapped: the passphrase is wrong or the key file was altered",
+        "rightPassphraseRecoversKey": true,
+        "limitation": "With the default plaintext key file the same copy decrypts every private key directly; this scenario tests the protected configuration, not the default."
+      },
+      "durationMs": 3230,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "audit-row-edit",
+      "title": "Edit an audit log row",
+      "category": "audit",
+      "adversary": "database-write",
+      "property": "log integrity",
+      "defence": "The hash chain: each entry's hash covers its fields and its predecessor's hash.",
+      "expected": "Integrity check fails at exactly that entry",
+      "outcome": "HELD",
+      "observed": "Chain broken at sequence 4 (ENTRY_HASH_MISMATCH)",
+      "steps": [
+        "Produced audit entries by signing a document",
+        "Edited audit entry 4 directly in the database",
+        "Ran the integrity check"
+      ],
+      "evidence": {
+        "editedSeq": 4,
+        "firstBreak": {
+          "seq": 4,
+          "entryId": "cmu0v2nmp000kn71g86ajja6b",
+          "problem": "ENTRY_HASH_MISMATCH",
+          "detail": "entry 4 (DOCUMENT_UPLOADED) stores 6c7e5f970d92381f... but its contents hash to dcbd4b1b559e218b...: this entry was altered"
+        }
+      },
+      "durationMs": 1570,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "audit-consistent-rewrite",
+      "title": "Rewrite the audit log and recompute every hash",
+      "category": "audit",
+      "adversary": "database-write",
+      "property": "log integrity",
+      "defence": "A signed, time-stamped checkpoint committed to the original chain head.",
+      "expected": "Chain check fooled, checkpoint check reports LOG_REWRITTEN",
+      "outcome": "HELD",
+      "observed": "Hash chain alone: fooled (verifies); with checkpoints: LOG_REWRITTEN",
+      "steps": [
+        "Produced audit entries and created a signed checkpoint",
+        "Edited entry 4, then recomputed and rewrote every later hash",
+        "Ran the chain check, then the checkpoint reconciliation"
+      ],
+      "evidence": {
+        "checkpointSeq": 8,
+        "chainValid": true,
+        "problems": [
+          "LOG_REWRITTEN"
+        ]
+      },
+      "durationMs": 1839,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "audit-truncation",
+      "title": "Delete the newest audit entries",
+      "category": "audit",
+      "adversary": "database-write",
+      "property": "log integrity",
+      "defence": "A signed checkpoint covering those entries.",
+      "expected": "Chain check fooled, checkpoint check reports LOG_TRUNCATED",
+      "outcome": "HELD",
+      "observed": "Hash chain alone: fooled (verifies); with checkpoints: LOG_TRUNCATED",
+      "steps": [
+        "Produced audit entries and created a signed checkpoint",
+        "Deleted the newest 3 entries",
+        "Ran the chain check, then the checkpoint reconciliation"
+      ],
+      "evidence": {
+        "checkpointSeq": 8,
+        "deleted": 3,
+        "chainValid": true,
+        "problems": [
+          "LOG_TRUNCATED"
+        ]
+      },
+      "durationMs": 1917,
+      "sandboxRemoved": true
+    },
+    {
+      "id": "login-brute-force",
+      "title": "Brute-force a password",
+      "category": "authentication",
+      "adversary": "online-guessing",
+      "property": "authentication",
+      "defence": "Per-account failed-login throttling, applied before the password is checked.",
+      "expected": "Locked out after 5 failures, even with the correct password",
+      "outcome": "HELD",
+      "observed": "Locked after 5 failures; the correct password is refused for 899 s",
+      "steps": [
+        "Tried 5 wrong passwords before the account was locked",
+        "Then tried the correct password",
+        "The limiter is consulted first, as in the login route"
+      ],
+      "evidence": {
+        "failuresBeforeLock": 5,
+        "retryAfterSeconds": 899,
+        "correctPasswordRefused": true
+      },
+      "durationMs": 4183,
+      "sandboxRemoved": true
+    }
+  ]
+}

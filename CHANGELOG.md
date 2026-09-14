@@ -8,6 +8,34 @@ All notable changes to OmniTrust Ledger. The format follows [Keep a Changelog](h
 - `docs/paper/outline.md`: a working outline for a systems and empirical paper. It maps every intended claim to existing evidence, lists the measurements still required (cross-machine runs, larger n, a post-quantum CA and TSA), and records which related work has been verified and which has not. Nothing in it is a submission-ready result.
 - `docs/audit/03-enterprise-and-publication-readiness.md`: an external readiness assessment with separate enterprise and publication tracks. Phases 16–18 act on parts of it.
 
+## Phases 21–25 — Acting on the post-Phase-20 reassessment (2026-09-14)
+
+The analysis, including what was declined and why, is in [`docs/audit/05-analysis-and-decisions.md`](docs/audit/05-analysis-and-decisions.md).
+
+### Added
+- **Phase 21: post-quantum trust services.**
+  - The root CA, Time-Stamp Authority and audit signer take their algorithm from installation policy (`PKI_CA_ALGORITHM`, `PKI_TSA_ALGORITHM`, `PKI_AUDIT_SIGNER_ALGORITHM`).
+  - ML-DSA-65 can now issue X.509 certificates and CRLs: Node 24's WebCrypto ML-DSA, with the RFC 9881 identifier registered in `@peculiar/x509`.
+  - A composite TSA works too.
+  - `npm run study:migration` accepts `--ca-algorithm` and `--tsa-algorithm` and records the trust services' algorithms and certificate sizes (schema 3).
+- **Phase 22: cross-run comparison and evidence.**
+  - `npm run study:compare` reports each run's precision, sizes side by side, and whether significant differences replicate across runs.
+  - Committed evidence lives under `docs/evidence/`, with a SHA-256 manifest (`npm run evidence:manifest`) checked by a test.
+  - The Phase 17 study file and the Phase 10 benchmark file are preserved there.
+- **Phase 23: threat model.**
+  - [`docs/threat-model.md`](docs/threat-model.md) lists the adversary capabilities, in and out of scope, and the scenario that tests each.
+  - `npm run lab:evaluate` runs every scenario in a sandbox and generates its tables and `docs/evidence/security-lab/evaluation.json`.
+  - Each Security Lab card names its adversary.
+- **Phase 24: master-key custody.**
+  - `npm run key:custody` wraps the master key file under a passphrase (scrypt, AES-256-GCM) or Windows DPAPI without changing the key.
+  - The dashboard shows the file's protection.
+  - A new Security Lab scenario, `stolen-key-file`, brings the total to 16.
+- **Phase 25:** `LICENSE` (MIT, matching the contract's SPDX identifier) and [`docs/architecture.md`](docs/architecture.md) with Mermaid diagrams.
+
+### Changed
+- ML-DSA-65's metadata now declares it an X.509 issuer.
+- `docs/paper/outline.md` records a reading of arXiv 2511.00111 (a qualitative comparison, with no measured sizes or timings) and marks CA and TSA migration as measurable.
+
 ## Phase 20 — Desktop-first layout (2026-09-14)
 
 ### Changed

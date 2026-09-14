@@ -22,6 +22,7 @@ A local, demo-grade PKI document signing system. It has five signature algorithm
 | No hand-rolled cryptography | IMPLEMENTED | Vetted libraries only; the boundary checker confines primitives to `lib/crypto` |
 | Local-first, no cloud or paid services | IMPLEMENTED | SQLite, local CA/TSA/chain; `npm run ci` runs offline |
 | No private keys or secrets in logs, errors or APIs | IMPLEMENTED | Log redaction; response-body scan on every route (Phase 11 found and fixed a leak) |
+| Master-key custody beyond a plaintext file (Phase 24) | PARTIAL | `lib/crypto/key-custody.ts`: passphrase wrapping (scrypt N = 2^17, AES-256-GCM, authenticated header) or Windows DPAPI, applied with `npm run key:custody`; `tests/crypto/key-custody.test.ts`. Still a local file, not an HSM or KMS; setup writes plaintext until an operator protects it; no help against a compromised running host |
 | Security Lab only on disposable data | IMPLEMENTED | Separate process and sandbox, isolation guard, before/after evidence |
 | Blockchain anchors commitments only | IMPLEMENTED | Only a Merkle root and leaf count reach the chain; checked on the transaction input |
 | No cryptocurrency, tokens or NFTs | IMPLEMENTED | The contract has no payable function; checked in tests |
@@ -52,6 +53,8 @@ A local, demo-grade PKI document signing system. It has five signature algorithm
 | RSA-PSS 3072, ECDSA P-256 (OpenSSL through `node:crypto`) | IMPLEMENTED | OpenSSL CLI verification in tests |
 | EdDSA Ed25519 (`@noble/ed25519`) | IMPLEMENTED | RFC 8032 vector; OpenSSL cross-signing |
 | ML-DSA-65 (FIPS 204, OpenSSL 3.5 through `node:crypto`) | IMPLEMENTED | Cross-verified with `@noble/post-quantum` from the same seed (`tests/crypto/mldsa-interop.test.ts`) |
+| ML-DSA-65 as a certificate issuer: root CA, TSA and audit signer by installation policy (Phase 21) | IMPLEMENTED | `lib/pki/policy.ts`; `lib/crypto/keys.ts` registers the RFC 9881 identifier with `@peculiar/x509`; signing uses Node 24's WebCrypto ML-DSA (experimental in Node). `tests/pki/pq-issuer.test.ts`: certificates for every algorithm verified by OpenSSL 3.5 through `node:crypto`; signing, time-stamping, CRLs, revocation and a checkpoint all under a post-quantum chain |
+| Composite certificate authority | NOT IMPLEMENTED | WebCrypto has no composite algorithm; a composite TSA or audit signer works, because they sign CMS through the orchestrator |
 | ML-DSA verification with the OpenSSL command-line tool | LIMITED BY LIBRARY | The installed CLIs (3.2.4, 3.4.0) cannot parse ML-DSA keys; the metadata test that runs the CLI is skipped for ML-DSA |
 | Requires Node 24 for ML-DSA | PARTIAL | Stated in the README; older Node cannot run the ML-DSA provider |
 | Composite ML-DSA-65 + ECDSA P-256 (`id-MLDSA65-ECDSA-P256-SHA512`, draft-ietf-lamps-pq-composite-sigs-19; CMS per draft-ietf-lamps-cms-composite-sigs-05) | IMPLEMENTED | `tests/crypto/composite.test.ts` verifies the draft's published signatures, keys and self-signed certificate (vectors pinned to upstream commit `1bb9f5c6`); each component of an in-app CMS signature is verified independently with `@noble/post-quantum` and `@noble/curves` (`tests/pki/cms-signature.test.ts`); both components are required |
@@ -127,6 +130,8 @@ A local, demo-grade PKI document signing system. It has five signature algorithm
 | Item | Status | Evidence |
 | --- | --- | --- |
 | 15 real attack scenarios, including an honest control | IMPLEMENTED | `tests/security-lab/security-lab.test.ts`: all HELD, three consecutive runs |
+| A 16th scenario, `stolen-key-file`, against a protected master key (Phase 24) | IMPLEMENTED | HELD in the test suite and in `npm run lab:evaluate` |
+| Threat model: adversary capabilities, the scenarios that test each, and consequences of the capabilities not defended against (Phase 23) | IMPLEMENTED | [`docs/threat-model.md`](threat-model.md), tables generated from a real run by `npm run lab:evaluate`; drift guarded by `tests/security-lab/threat-model.test.ts` |
 | Isolation: child process, per-run sandbox database, storage and key, deleted afterwards | IMPLEMENTED | Guard tests; full sandboxed run; E2E |
 | Before/after evidence that application data is untouched | IMPLEMENTED | Record counts and audit head compared per run |
 | Admin-only, one run at a time, audited | IMPLEMENTED | Route and service tests |
@@ -157,7 +162,9 @@ A local, demo-grade PKI document signing system. It has five signature algorithm
 | Implementation-independent comparison of algorithms | LIMITED BY LIBRARY | Ed25519 runs in pure JavaScript while the others run in native OpenSSL, so its timings describe the library; stated on the page |
 | Pairwise significance testing: Mann-Whitney U (primary), Welch's t, Holm correction, Cliff's delta, Hodges-Lehmann shift | IMPLEMENTED | `lib/benchmarks/inference.ts`, `lib/benchmarks/comparison.ts`; checked against closed forms (`tests/benchmarks/inference.test.ts`) |
 | Post-quantum migration study across the trust chain (certificate, signature, CMS, time-stamp token, CRL growth, anchoring commitment; issuance, end-to-end sign and verify, CMS verification, orchestration overhead) | IMPLEMENTED | `npm run study:migration` in an isolated installation, with interleaved seeded rounds; results in `docs/upgrade-log.md` Phase 17 |
-| Cross-machine reproducibility of timings | PARTIAL | The study records its environment and seed, but has been run on one machine only |
+| Cross-run comparison: achieved precision, and whether significant differences replicate across runs (Phase 22) | IMPLEMENTED | `npm run study:compare`, `lib/benchmarks/study-comparison.ts` with `tests/benchmarks/study-comparison.test.ts` |
+| Committed, digest-checked evidence files | IMPLEMENTED | `docs/evidence/`, `npm run evidence:manifest`, `tests/ci/evidence-manifest.test.ts` |
+| Cross-machine reproducibility of timings | PARTIAL | Two seeds on one machine are compared (Phase 25); a second machine has not been measured |
 
 ## 15. Testing
 
@@ -175,7 +182,7 @@ A local, demo-grade PKI document signing system. It has five signature algorithm
 | --- | --- | --- |
 | `npm run ci`: 11 offline gates with a PASS/FAIL summary and a report | IMPLEMENTED | Full run passed in 237 s; failure path demonstrated |
 | `npm run e2e`: isolated production installation driven over HTTP | IMPLEMENTED | 17/17; negative control fails exactly the anchoring step |
-| Hosted CI | NOT IMPLEMENTED | Out of scope by the local-first rule |
+| Hosted CI | NOT IMPLEMENTED | Out of scope by the local-first rule; `docs/audit/05-analysis-and-decisions.md` records why it was not adopted |
 
 ## 17. Security audit
 
@@ -205,10 +212,11 @@ Each was found by a test, an external tool or a live check, not assumed.
 ## 19. Not implemented, collected
 
 - OCSP, delta CRLs, intermediate CAs, certificate renewal, an operator key-rotation workflow.
-- HSM or KMS key custody; multi-factor authentication; server-side session revocation.
+- HSM or KMS key custody (passphrase and Windows DPAPI protection of the master key file exist; see §2); multi-factor authentication; server-side session revocation.
 - ETSI EN 319 102-1, CAdES or PAdES conformance; PDF signing.
 - Persistent or public-chain anchoring.
-- Composite signatures other than ML-DSA-65 + ECDSA P-256 (the draft defines 18 combinations); composite certificate authorities (the CA still signs with a classical algorithm).
+- Composite signatures other than ML-DSA-65 + ECDSA P-256 (the draft defines 18 combinations); composite certificate authorities (a post-quantum ML-DSA-65 CA is possible by policy; the default CA is still classical).
+- Catalyst and chameleon hybrid certificates.
 - Multi-instance deployment.
 - Offline dependency-advisory scanning; code-coverage percentages; hosted CI.
 - A formal accessibility audit.
