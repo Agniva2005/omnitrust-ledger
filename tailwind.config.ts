@@ -8,6 +8,9 @@ const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Desktop monitors: 3xl is where a 1920px screen gets side-by-side panels and right rails.
+      screens: { "3xl": "1800px" },
+      maxWidth: { content: "1760px" },
       fontFamily: {
         // System stacks only: nothing is downloaded at build or run time, so CI stays offline.
         sans: ['"Segoe UI Variable Text"', '"Segoe UI"', "Inter", "ui-sans-serif", "system-ui", "-apple-system", "Roboto", '"Helvetica Neue"', "Arial", "sans-serif"],

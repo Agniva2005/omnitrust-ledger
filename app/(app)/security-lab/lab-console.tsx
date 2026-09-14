@@ -83,7 +83,7 @@ export function LabConsole({ scenarios, canRun = true }: { scenarios: readonly S
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 3xl:grid-cols-3">
         {visible.map((scenario) => {
           const result = runs[scenario.id];
           const style = result ? OUTCOME_STYLE[result.result.outcome] : null;

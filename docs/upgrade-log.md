@@ -1150,3 +1150,56 @@ The dashboard read stored certificate statuses. The seeded expired certificate t
 
 - **`npm run ci`: CI PASSED in 184.1 s**, all 11 steps.
 - **`npm run e2e`: 17 of 17 passed**, including every application page rendering for an admin, and the development database's SHA-256 identical before and after.
+
+## Phase 20 — Desktop-first layout, from a second walkthrough at monitor resolutions
+
+**Scope.** The user works on a PC, not a phone, and asked for the interface only; no backend change. The walkthrough ran against the isolated `storage/demo-audit` installation at 1920×1080, 1536×864 and 1366×768, as an admin. The pane was hidden and screenshots timed out, so findings are DOM measurements: container width, heading offsets, page height in screens, and tables whose content exceeded their box.
+
+**Findings at 1920×1080.**
+1. Content was capped at 1280 px (`max-w-7xl`), leaving about 200 px empty to its right and a wide gutter on its left.
+2. **Verification:** 2.1 screens; the verdict at 548 px and the step checklist at 1066 px, below the fold.
+3. **Audit log:** 4.7 screens, with the integrity check and checkpoints scrolling away above a long timeline.
+4. **Benchmarks:** 4.6 screens, and the migration study's "Workflow timings" table overflowed (689 px of content in a 555 px box).
+5. **Security Lab:** 15 scenarios in two columns, 2.4 screens.
+6. **Document detail:** a paragraph 1174 px wide, too long a line to read.
+7. **Dashboard:** "Your permissions" below the fold.
+8. **No keyboard navigation** beyond Ctrl+K.
+
+**Fixes.**
+1. **Wider content.** Content is capped at `max-w-content` (1760 px), with `2xl:px-10`, plus a `3xl` breakpoint at 1800 px.
+2. **Verification.**
+   - A sticky right rail from `2xl`.
+   - The step list and the trust panel side by side at `3xl`; the step list is now first in the DOM and labelled "Verification steps".
+   - The evidence chain goes six across only at `3xl`, where its column is wide enough.
+3. **Audit log.** A sticky rail, scrollable within the viewport, holds the integrity check and checkpoints beside the timeline. Checkpoints are a list, because a five-column table does not fit a rail.
+4. **Benchmarks.** "Workflow timings" and "Which differences are real" pair only at `3xl`, and each table box scrolls on its own. "Method and environment" and "Sizes" pair at `3xl`.
+5. **Security Lab.** Three columns at `3xl`.
+6. **Document detail.** Sign and "Verify outside this app" pair at `3xl` when both are shown; the OpenSSL note is capped at `max-w-4xl`.
+7. **Dashboard.** Permissions sit in the recent row (three columns at `3xl`).
+8. **Keyboard shortcuts** in `components/app-shell.tsx`.
+   - G then a letter jumps to a page: D, O, U, C, A, L, N, S or B.
+   - `/` opens the command palette.
+   - `[` toggles the sidebar.
+   - `?` opens a shortcuts dialog, also reachable from a header button and the palette.
+   - Shortcuts are ignored in form fields, with modifiers, or while a dialog is open.
+
+**Re-check.**
+- **1920×1080:**
+
+  | Page | Before | After |
+  |---|---|---|
+  | Verification | step list at 1066 px, 2.1 screens | step list at 553 px, verdict at 308 px, 1.71 screens |
+  | Security Lab | 2 columns, 2.4 screens | 3 columns, 1.8 screens |
+  | Document detail | 1.16 screens, widest paragraph 1174 px | 1.07 screens, widest paragraph 731 px |
+  | Dashboard | "Your permissions" below the fold | every card in the first screen |
+  | Benchmarks | one overflowing table | none |
+
+- **Page height.** The audit log's height is still set by its 200-entry timeline, but its rail now stays in view.
+- **Overflow.** No page scrolled horizontally at 1366, 1536 or 1920 px. No table overflowed on the documents, certificates, algorithms, benchmarks and verification pages.
+- **Shortcuts.** `?` opened the dialog, and G then C navigated to `/certificates`.
+- **Static checks.** Typecheck and lint pass.
+
+**Not established:** a screenshot-based visual review at these sizes (screenshots timed out with the pane hidden), and a formal accessibility audit of the shortcuts.
+
+- **`npm run ci`: CI PASSED in 244.3 s**, all 11 steps.
+- **`npm run e2e`: 17 of 17 passed**, including every application page rendering for an admin, and the development database's SHA-256 identical before and after.

@@ -155,7 +155,8 @@ export default async function BenchmarksPage() {
         </Card>
       )}
 
-      <Card>
+      <div className="grid items-start gap-6 3xl:grid-cols-2">
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Method and environment</CardTitle>
           <CardDescription>
@@ -224,7 +225,7 @@ export default async function BenchmarksPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Sizes</CardTitle>
           <CardDescription>Properties of the algorithms and encodings, unaffected by which library implements them.</CardDescription>
@@ -263,6 +264,7 @@ export default async function BenchmarksPage() {
           </Table>
         </CardContent>
       </Card>
+      </div>
 
       {(["sign", "verify"] as const).map((operation) => (
         <Card key={operation}>

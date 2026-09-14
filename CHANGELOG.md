@@ -8,6 +8,23 @@ All notable changes to OmniTrust Ledger. The format follows [Keep a Changelog](h
 - `docs/paper/outline.md`: a working outline for a systems and empirical paper. It maps every intended claim to existing evidence, lists the measurements still required (cross-machine runs, larger n, a post-quantum CA and TSA), and records which related work has been verified and which has not. Nothing in it is a submission-ready result.
 - `docs/audit/03-enterprise-and-publication-readiness.md`: an external readiness assessment with separate enterprise and publication tracks. Phases 16–18 act on parts of it.
 
+## Phase 20 — Desktop-first layout (2026-09-14)
+
+### Changed
+- Content uses the width of a desktop monitor, up to 1760 px instead of 1280 px, and a `3xl` breakpoint (1800 px) adds side-by-side panels.
+- Verification: "What is being verified" is a sticky right rail from 1536 px, and on wide monitors the step checklist sits beside the time and revocation panel. At 1920×1080 the checklist starts within the first screen.
+- Audit log: the integrity check and signed checkpoints form a sticky rail beside the timeline; checkpoints are a compact list.
+- Document detail: the Sign card and "Verify outside this app" sit side by side on wide monitors.
+- Dashboard: "Your permissions" joins the recent-activity row.
+- Security Lab: three scenario columns on wide monitors.
+- Benchmarks: method and sizes side by side.
+
+### Added
+- Keyboard shortcuts: G then a letter jumps to a page, / opens the command palette, [ collapses the sidebar, and ? lists every shortcut. Shortcuts are ignored while typing. The palette shows each page's shortcut.
+
+### Fixed
+- The migration study's "Workflow timings" table scrolled sideways on desktop widths.
+
 ## Phase 19 — Interface audit by walkthrough (2026-09-14)
 
 ### Fixed

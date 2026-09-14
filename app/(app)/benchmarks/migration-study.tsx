@@ -169,13 +169,13 @@ export function MigrationStudySection({ study }: { study: StudyFile }) {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
+      <div className="grid gap-6 3xl:grid-cols-2">
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Workflow timings</CardTitle>
             <CardDescription>Median milliseconds, with the 95% confidence interval of the mean beneath.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -207,7 +207,7 @@ export function MigrationStudySection({ study }: { study: StudyFile }) {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Which differences are real</CardTitle>
             <CardDescription>Pairs whose Mann-Whitney test stays below 0.05 after Holm&apos;s correction, and those with at least a medium effect (Cliff&apos;s δ).</CardDescription>

@@ -166,7 +166,7 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 3xl:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -235,21 +235,21 @@ export default async function DashboardPage() {
             </ol>
           </CardContent>
         </Card>
-      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Your permissions</CardTitle>
-          <CardDescription>Resolved from the role-to-capability map in lib/auth/rbac.ts, which every route checks.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          {capabilitiesFor(actor.role).map((capability) => (
-            <Badge key={capability} variant="outline" className="font-mono">
-              {capability}
-            </Badge>
-          ))}
-        </CardContent>
-      </Card>
+        <Card className="lg:col-span-2 3xl:col-span-1">
+          <CardHeader>
+            <CardTitle>Your permissions</CardTitle>
+            <CardDescription>Resolved from the role-to-capability map in lib/auth/rbac.ts, which every route checks.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {capabilitiesFor(actor.role).map((capability) => (
+              <Badge key={capability} variant="outline" className="font-mono">
+                {capability}
+              </Badge>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

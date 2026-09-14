@@ -7,6 +7,7 @@ import {
   FileText,
   FlaskConical,
   Gauge,
+  Keyboard,
   KeyRound,
   LayoutDashboard,
   Link2,
@@ -29,43 +30,69 @@ import { ThemeToggle, applyTheme, readThemePreference } from "@/components/theme
 import { SIDEBAR_STORAGE_KEY } from "@/lib/ui/theme-script";
 import { cn } from "@/lib/utils";
 
-type NavItem = { href: string; label: string; icon: LucideIcon; description: string };
+/** `key` is the second key of the "G then key" navigation shortcut. */
+type NavItem = { href: string; label: string; icon: LucideIcon; description: string; key: string };
 type NavGroup = { label: string; items: NavItem[] };
 
 const NAVIGATION: NavGroup[] = [
   {
     label: "Overview",
-    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, description: "Live counts, trust services and recent activity" }],
+    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, description: "Live counts, trust services and recent activity", key: "d" }],
   },
   {
     label: "Records",
     items: [
-      { href: "/documents", label: "Documents", icon: FileText, description: "Upload, sign, version and verify documents" },
-      { href: "/documents/upload", label: "Upload document", icon: Upload, description: "Add a document and compute its SHA-256" },
+      { href: "/documents", label: "Documents", icon: FileText, description: "Upload, sign, version and verify documents", key: "o" },
+      { href: "/documents/upload", label: "Upload document", icon: Upload, description: "Add a document and compute its SHA-256", key: "u" },
     ],
   },
   {
     label: "Trust",
     items: [
-      { href: "/certificates", label: "Certificates", icon: ShieldCheck, description: "Issue, explore and revoke X.509 certificates" },
-      { href: "/algorithms", label: "Algorithms", icon: KeyRound, description: "Classical, post-quantum and hybrid providers" },
+      { href: "/certificates", label: "Certificates", icon: ShieldCheck, description: "Issue, explore and revoke X.509 certificates", key: "c" },
+      { href: "/algorithms", label: "Algorithms", icon: KeyRound, description: "Classical, post-quantum and hybrid providers", key: "a" },
     ],
   },
   {
     label: "Integrity",
     items: [
-      { href: "/audit", label: "Audit log", icon: ScrollText, description: "Hash-chained log and signed checkpoints" },
-      { href: "/anchoring", label: "Anchoring", icon: Link2, description: "Merkle roots on the local chain" },
+      { href: "/audit", label: "Audit log", icon: ScrollText, description: "Hash-chained log and signed checkpoints", key: "l" },
+      { href: "/anchoring", label: "Anchoring", icon: Link2, description: "Merkle roots on the local chain", key: "n" },
     ],
   },
   {
     label: "Evaluation",
     items: [
-      { href: "/security-lab", label: "Security Lab", icon: FlaskConical, description: "Real attacks in disposable sandboxes" },
-      { href: "/benchmarks", label: "Benchmarks", icon: Gauge, description: "Measured timings with their uncertainty" },
+      { href: "/security-lab", label: "Security Lab", icon: FlaskConical, description: "Real attacks in disposable sandboxes", key: "s" },
+      { href: "/benchmarks", label: "Benchmarks", icon: Gauge, description: "Measured timings with their uncertainty", key: "b" },
     ],
   },
 ];
+
+const GENERAL_SHORTCUTS: { keys: string[]; label: string }[] = [
+  { keys: ["Ctrl", "K"], label: "Open the command palette" },
+  { keys: ["/"], label: "Open the command palette" },
+  { keys: ["["], label: "Collapse or expand the sidebar" },
+  { keys: ["?"], label: "Show this list" },
+];
+
+function Keys({ keys }: { keys: string[] }) {
+  return (
+    <span className="flex items-center gap-1">
+      {keys.map((key, index) => (
+        <kbd key={`${key}-${index}`} className="min-w-[1.5rem] rounded border bg-muted px-1.5 py-px text-center font-mono text-[10px] uppercase text-muted-foreground">
+          {key}
+        </kbd>
+      ))}
+    </span>
+  );
+}
+
+/** Shortcuts are ignored while typing, so they never swallow input in a form field. */
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
 
 const ALL_ITEMS = NAVIGATION.flatMap((group) => group.items);
 
@@ -168,9 +195,65 @@ function Breadcrumbs({ pathname }: { pathname: string }) {
   );
 }
 
-type PaletteEntry = { id: string; label: string; description: string; group: string; icon: LucideIcon; run: () => void };
+type PaletteEntry = { id: string; label: string; description: string; group: string; icon: LucideIcon; keys?: string[]; run: () => void };
 
-function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm data-[state=open]:animate-fade-in" />
+        <Dialog.Content className="fixed left-1/2 top-[12vh] z-50 w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border bg-popover p-6 text-popover-foreground shadow-elevated data-[state=open]:animate-scale-in">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <Dialog.Title className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+                <Keyboard aria-hidden className="h-5 w-5 text-primary" /> Keyboard shortcuts
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-muted-foreground">
+                Press G, then a letter, to jump to a page. Shortcuts are ignored while you type in a field.
+              </Dialog.Description>
+            </div>
+            <Dialog.Close aria-label="Close keyboard shortcuts" className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
+              <X aria-hidden className="h-4 w-4" />
+            </Dialog.Close>
+          </div>
+          <div className="mt-5 grid gap-6 sm:grid-cols-2">
+            <section>
+              <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Go to</h2>
+              <ul className="space-y-1">
+                {ALL_ITEMS.map((item) => (
+                  <li key={item.href} className="flex items-center justify-between gap-3 rounded-md px-2 py-1 text-sm hover:bg-muted/50">
+                    <span className="flex items-center gap-2">
+                      <item.icon aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+                      {item.label}
+                    </span>
+                    <Keys keys={["G", item.key]} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section>
+              <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">General</h2>
+              <ul className="space-y-1">
+                {GENERAL_SHORTCUTS.map((shortcut) => (
+                  <li key={shortcut.keys.join("+")} className="flex items-center justify-between gap-3 rounded-md px-2 py-1 text-sm hover:bg-muted/50">
+                    {shortcut.label}
+                    <Keys keys={shortcut.keys} />
+                  </li>
+                ))}
+                <li className="flex items-center justify-between gap-3 rounded-md px-2 py-1 text-sm hover:bg-muted/50">
+                  Move through palette results
+                  <Keys keys={["↑", "↓"]} />
+                </li>
+              </ul>
+            </section>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function CommandPalette({ open, onOpenChange, onShowShortcuts }: { open: boolean; onOpenChange: (open: boolean) => void; onShowShortcuts: () => void }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -179,8 +262,17 @@ function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (
   const entries = useMemo<PaletteEntry[]>(
     () => [
       ...NAVIGATION.flatMap((group) =>
-        group.items.map((item) => ({ id: item.href, label: item.label, description: item.description, group: group.label, icon: item.icon, run: () => router.push(item.href) })),
+        group.items.map((item) => ({
+          id: item.href,
+          label: item.label,
+          description: item.description,
+          group: group.label,
+          icon: item.icon,
+          keys: ["G", item.key],
+          run: () => router.push(item.href),
+        })),
       ),
+      { id: "shortcuts", label: "Keyboard shortcuts", description: "Every shortcut in one list", group: "Actions", icon: Keyboard, keys: ["?"], run: onShowShortcuts },
       {
         id: "theme",
         label: "Switch theme",
@@ -194,7 +286,7 @@ function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (
       },
       { id: "sign-out", label: "Sign out", description: "End this session", group: "Actions", icon: LogOut, run: () => void signOut() },
     ],
-    [router],
+    [router, onShowShortcuts],
   );
 
   const matches = useMemo(() => {
@@ -276,8 +368,14 @@ function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (
                       <span className="block truncate text-sm font-medium">{entry.label}</span>
                       <span className="block truncate text-xs text-muted-foreground">{entry.description}</span>
                     </span>
-                    <span className="hidden text-[10px] uppercase tracking-wide text-muted-foreground sm:block">{entry.group}</span>
-                    {selected && <CornerDownLeft aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />}
+                    {entry.keys ? (
+                      <span className="hidden sm:block">
+                        <Keys keys={entry.keys} />
+                      </span>
+                    ) : (
+                      <span className="hidden text-[10px] uppercase tracking-wide text-muted-foreground sm:block">{entry.group}</span>
+                    )}
+                    <CornerDownLeft aria-hidden className={cn("h-3.5 w-3.5 text-muted-foreground", !selected && "invisible")} />
                   </button>
                 </li>
               );
@@ -293,6 +391,9 @@ export function AppShell({ user, children }: { user: { email: string; role: stri
   const pathname = usePathname();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const router = useRouter();
+  const pendingGo = useRef<number | null>(null);
 
   const toggleSidebar = useCallback(() => {
     const root = document.documentElement;
@@ -311,11 +412,40 @@ export function AppShell({ user, children }: { user: { email: string; role: stri
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((value) => !value);
+        return;
+      }
+      // Single-key shortcuts: never while typing, with a modifier, or while a dialog is open.
+      if (event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented || isTypingTarget(event.target)) return;
+      if (document.querySelector('[role="dialog"]')) return;
+
+      const key = event.key.toLowerCase();
+      if (pendingGo.current !== null && Date.now() - pendingGo.current < 1500) {
+        pendingGo.current = null;
+        const item = ALL_ITEMS.find((candidate) => candidate.key === key);
+        if (item) {
+          event.preventDefault();
+          router.push(item.href);
+        }
+        return;
+      }
+      pendingGo.current = null;
+
+      if (key === "g") {
+        pendingGo.current = Date.now();
+      } else if (key === "/") {
+        event.preventDefault();
+        setPaletteOpen(true);
+      } else if (key === "?") {
+        event.preventDefault();
+        setShortcutsOpen(true);
+      } else if (key === "[") {
+        event.preventDefault();
+        toggleSidebar();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [router, toggleSidebar]);
 
   const initials = user.email.slice(0, 2).toUpperCase();
 
@@ -394,6 +524,15 @@ export function AppShell({ user, children }: { user: { email: string; role: stri
             <button type="button" onClick={() => setPaletteOpen(true)} aria-label="Search pages and actions" className="grid h-8 w-8 place-items-center rounded-md border bg-card text-muted-foreground md:hidden">
               <Search aria-hidden className="h-4 w-4" />
             </button>
+            <button
+              type="button"
+              onClick={() => setShortcutsOpen(true)}
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts (?)"
+              className="hidden h-8 w-8 place-items-center rounded-md border bg-card text-muted-foreground shadow-card hover:text-foreground lg:grid"
+            >
+              <Keyboard aria-hidden className="h-4 w-4" />
+            </button>
             <ThemeToggle className="hidden sm:inline-flex" />
             <div className="flex items-center gap-2 rounded-lg border bg-card py-1 pl-1 pr-1.5 shadow-card">
               <span aria-hidden className="grid h-6 w-6 place-items-center rounded-md bg-accent text-[10px] font-semibold text-accent-foreground">
@@ -415,15 +554,16 @@ export function AppShell({ user, children }: { user: { email: string; role: stri
           </div>
         </header>
 
-        <main id="main" className="mx-auto w-full max-w-7xl flex-1 animate-fade-in px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <main id="main" className="mx-auto w-full max-w-content flex-1 animate-fade-in px-4 py-6 sm:px-6 lg:px-8 lg:py-8 2xl:px-10">
           {children}
         </main>
-        <footer className="border-t px-4 py-3 sm:px-6 lg:px-8">
-          <DemoNotice className="mx-auto max-w-7xl" />
+        <footer className="border-t px-4 py-3 sm:px-6 lg:px-8 2xl:px-10">
+          <DemoNotice className="mx-auto max-w-content" />
         </footer>
       </div>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onShowShortcuts={() => setShortcutsOpen(true)} />
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   );
 }

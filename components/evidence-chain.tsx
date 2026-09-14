@@ -23,7 +23,7 @@ const TONE: Record<StepStatus, { card: string; icon: string; symbol: typeof Chec
 export function EvidenceChain({ steps }: { steps: { id: string; status: StepStatus }[] }) {
   const statusOf = (id: string): StepStatus => steps.find((step) => step.id === id)?.status ?? "SKIPPED";
   return (
-    <ol aria-label="Evidence chain" className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+    <ol aria-label="Evidence chain" className="grid gap-2 sm:grid-cols-3 3xl:grid-cols-6">
       {LINKS.map((link, index) => {
         const status = statusOf(link.id);
         const tone = TONE[status];
@@ -39,7 +39,7 @@ export function EvidenceChain({ steps }: { steps: { id: string; status: StepStat
             </div>
             <div className="mt-1.5 text-[11px] leading-snug text-muted-foreground">{link.detail}</div>
             {index < LINKS.length - 1 && (
-              <ChevronRight aria-hidden className="absolute -right-2 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-muted-foreground/50 xl:block" />
+              <ChevronRight aria-hidden className="absolute -right-2 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-muted-foreground/50 3xl:block" />
             )}
           </li>
         );

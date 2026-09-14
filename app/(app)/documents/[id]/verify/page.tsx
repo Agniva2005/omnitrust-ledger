@@ -63,8 +63,8 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
           </CardHeader>
         </Card>
       ) : (
-        <>
-          <Card>
+        <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_22rem] 3xl:grid-cols-[minmax(0,1fr)_26rem]">
+          <Card className="2xl:sticky 2xl:top-20 2xl:col-start-2 2xl:row-start-1">
             <CardHeader>
               <CardTitle>What is being verified</CardTitle>
               <CardDescription>
@@ -74,7 +74,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <dl className="grid gap-3 text-sm sm:grid-cols-3">
+              <dl className="grid gap-3 text-sm sm:grid-cols-3 2xl:grid-cols-1">
                 <div className="rounded-lg border bg-muted/30 p-3">
                   <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <KeyRound aria-hidden className="h-3.5 w-3.5" /> Algorithm (from the signature record)
@@ -102,8 +102,10 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
             </CardContent>
           </Card>
 
-          <VerifyRunner documentId={document.id} />
-        </>
+          <div className="min-w-0 2xl:col-start-1 2xl:row-start-1">
+            <VerifyRunner documentId={document.id} />
+          </div>
+        </div>
       )}
     </div>
   );

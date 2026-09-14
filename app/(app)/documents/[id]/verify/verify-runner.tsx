@@ -165,29 +165,8 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
 
             <EvidenceChain steps={result.steps.filter((step) => !step.id.includes(":"))} />
 
-            <div className="rounded-xl border p-4">
-              <div className="mb-3 text-sm font-medium">Time and revocation</div>
-              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                <TrustRow label="Trusted time-stamp" value={result.trust.trustedTime} />
-                <TrustRow label="Time-Stamp Authority" value={result.trust.timestampAuthority} />
-                <TrustRow label="Server clock at signing (not evidence)" value={result.trust.claimedSigningTime} />
-                <TrustRow label="Certificate judged at" value={result.trust.certificateEvaluatedAt} />
-                <TrustRow
-                  label="Revocation"
-                  value={
-                    result.trust.revocation
-                      ? `${result.trust.revocation.reason} at ${result.trust.revocation.revokedAt}${
-                          result.trust.revocation.invalidityDate ? `, invalid from ${result.trust.revocation.invalidityDate}` : ""
-                        }`
-                      : "not revoked"
-                  }
-                />
-                <TrustRow label="Policy decision" value={result.trust.revocationDecision} />
-                <TrustRow label="Policy" value={result.trust.policy} />
-              </dl>
-            </div>
-
-            <ol className="divide-y overflow-hidden rounded-xl border">
+            <div className="grid items-start gap-5 3xl:grid-cols-[minmax(0,1fr)_20rem]">
+            <ol aria-label="Verification steps" className="divide-y overflow-hidden rounded-xl border">
               {result.steps.map((step) => {
                 const stepDisplay = STEP_DISPLAY[step.status];
                 const sub = step.id.startsWith("certificate-validity:");
@@ -206,6 +185,29 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
                 );
               })}
             </ol>
+
+            <div className="rounded-xl border p-4">
+              <div className="mb-3 text-sm font-medium">Time and revocation</div>
+              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 3xl:grid-cols-1">
+                <TrustRow label="Trusted time-stamp" value={result.trust.trustedTime} />
+                <TrustRow label="Time-Stamp Authority" value={result.trust.timestampAuthority} />
+                <TrustRow label="Server clock at signing (not evidence)" value={result.trust.claimedSigningTime} />
+                <TrustRow label="Certificate judged at" value={result.trust.certificateEvaluatedAt} />
+                <TrustRow
+                  label="Revocation"
+                  value={
+                    result.trust.revocation
+                      ? `${result.trust.revocation.reason} at ${result.trust.revocation.revokedAt}${
+                          result.trust.revocation.invalidityDate ? `, invalid from ${result.trust.revocation.invalidityDate}` : ""
+                        }`
+                      : "not revoked"
+                  }
+                />
+                <TrustRow label="Policy decision" value={result.trust.revocationDecision} />
+                <TrustRow label="Policy" value={result.trust.policy} />
+              </dl>
+            </div>
+            </div>
           </div>
         )}
       </CardContent>

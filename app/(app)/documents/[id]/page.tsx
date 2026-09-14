@@ -62,6 +62,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const latestVersion = document.versions[0];
   const latestSignature = signatures.find((signature) => signature.documentVersion.versionNumber === latestVersion?.versionNumber);
   const latestSigned = Boolean(latestSignature);
+  const hasCms = signatures.some((signature) => signature.cmsSignature);
 
   const certificates: CertificateOption[] = can(actor.role, "document:sign")
     ? (await signableCertificates(actor)).map((certificate) => ({
@@ -129,8 +130,10 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         </SummaryTile>
       </div>
 
+      {/* On a wide monitor the sign form and the offline-verification recipe sit side by side. */}
+      <div className={cn("grid items-start gap-6", can(actor.role, "document:sign") && hasCms && "3xl:grid-cols-2")}>
       {can(actor.role, "document:sign") && (
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Sign</CardTitle>
             <CardDescription>
@@ -146,6 +149,36 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           )}
         </Card>
       )}
+
+      {hasCms && (
+        <Card className="min-w-0">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TerminalSquare aria-hidden className="h-4 w-4 text-primary" /> Verify outside this app
+            </CardTitle>
+            <CardDescription>
+              The CMS export is a standard detached signature (RFC 5652) carrying the signer&apos;s and the CA&apos;s certificates and a time-stamp over its
+              signature value. Download it, the document and the{" "}
+              <a className="font-medium text-primary underline-offset-2 hover:underline" href="/api/pki/ca?format=pem">
+                CA certificate
+              </a>
+              , then run:
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-start gap-2 rounded-lg border bg-muted/50 p-3">
+              <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-xs">{OPENSSL_COMMAND}</pre>
+              <CopyButton value={OPENSSL_COMMAND} label="Copy command" />
+            </div>
+            <p className="max-w-4xl text-muted-foreground">
+              Checked with the OpenSSL 3.2.4 and 3.4.0 command-line tools for {listFormat(opensslCapable, "conjunction")}. Those tools cannot process{" "}
+              {listFormat(opensslIncapable, "disjunction")} CMS signatures, so those are checked in the test suite against independent implementations instead.
+              This is a demo CA: a successful check means the file is consistent, not that anyone outside this installation trusts the signer.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      </div>
 
       <Card className="overflow-hidden">
         <CardHeader>
@@ -219,35 +252,6 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           </Table>
         )}
       </Card>
-
-      {signatures.some((signature) => signature.cmsSignature) && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TerminalSquare aria-hidden className="h-4 w-4 text-primary" /> Verify outside this app
-            </CardTitle>
-            <CardDescription>
-              The CMS export is a standard detached signature (RFC 5652) carrying the signer&apos;s and the CA&apos;s certificates and a time-stamp over its
-              signature value. Download it, the document and the{" "}
-              <a className="font-medium text-primary underline-offset-2 hover:underline" href="/api/pki/ca?format=pem">
-                CA certificate
-              </a>
-              , then run:
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="flex items-start gap-2 rounded-lg border bg-muted/50 p-3">
-              <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-xs">{OPENSSL_COMMAND}</pre>
-              <CopyButton value={OPENSSL_COMMAND} label="Copy command" />
-            </div>
-            <p className="text-muted-foreground">
-              Checked with the OpenSSL 3.2.4 and 3.4.0 command-line tools for {listFormat(opensslCapable, "conjunction")}. Those tools cannot process{" "}
-              {listFormat(opensslIncapable, "disjunction")} CMS signatures, so those are checked in the test suite against independent implementations instead.
-              This is a demo CA: a successful check means the file is consistent, not that anyone outside this installation trusts the signer.
-            </p>
-          </CardContent>
-        </Card>
-      )}
 
       <Card className="overflow-hidden">
         <CardHeader>
