@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ScenarioDefinition, ScenarioResult } from "@/lib/security-lab/catalog";
+import { adversaryFor, type ScenarioDefinition, type ScenarioResult } from "@/lib/security-lab/catalog";
 import { cn } from "@/lib/utils";
 
 type Run = {
@@ -101,6 +101,13 @@ export function LabConsole({ scenarios, canRun = true }: { scenarios: readonly S
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-3 text-sm">
                 <dl className="space-y-2 rounded-lg border bg-muted/25 p-3">
+                  <div>
+                    <dt className="inline text-muted-foreground">Adversary: </dt>
+                    <dd className="inline" title={adversaryFor(scenario.adversary).capability}>
+                      {adversaryFor(scenario.adversary).label}
+                      <span className="text-muted-foreground"> · attacks {scenario.property}</span>
+                    </dd>
+                  </div>
                   <div>
                     <dt className="inline text-muted-foreground">Control: </dt>
                     <dd className="inline">{scenario.defence}</dd>
