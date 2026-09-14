@@ -46,8 +46,8 @@ The security argument therefore has two halves. An attack succeeds only if it tu
 
 Not generated yet. Run `npm run lab:evaluate`.
 
-`none` `storage-write` `database-write` `artefact-replay` `offline-content` `key-compromise` `online-guessing` `host-compromise` `ca-key-compromise` `network` `denial-of-service` `side-channel`
-`control-untouched` `document-substitution` `ciphertext-bitflip` `signature-corruption` `signature-replay` `algorithm-confusion` `key-substitution` `compromised-key` `timestamp-swap` `forged-crl` `cms-content-tamper` `audit-row-edit` `audit-consistent-rewrite` `audit-truncation` `login-brute-force`
+`none` `storage-write` `database-write` `artefact-replay` `offline-content` `key-compromise` `online-guessing` `file-theft` `host-compromise` `ca-key-compromise` `network` `denial-of-service` `side-channel`
+`control-untouched` `document-substitution` `ciphertext-bitflip` `signature-corruption` `signature-replay` `algorithm-confusion` `key-substitution` `compromised-key` `timestamp-swap` `forged-crl` `cms-content-tamper` `stolen-key-file` `audit-row-edit` `audit-consistent-rewrite` `audit-truncation` `login-brute-force`
 
 <!-- evaluation:end -->
 

@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { loadMasterKey } from "@/lib/crypto/key-custody";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
@@ -20,25 +21,25 @@ export class DecryptionIntegrityError extends Error {
 
 let cachedKey: Buffer | null = null;
 
+export function masterKeyPath(): string {
+  return path.resolve(process.env.MASTER_KEY_PATH ?? "./storage/keys/master.key");
+}
+
 /**
- * Demo-grade key management: the data-encryption key is a local file, not an HSM
- * or KMS. Stated as a limitation in README.md and in the UI footer.
+ * Demo-grade key management: the data-encryption key is a local file, not an HSM or KMS. The
+ * file may be plaintext or wrapped under a passphrase or Windows DPAPI (lib/crypto/key-custody.ts).
+ * Stated as a limitation in README.md and in the UI footer.
  */
 export function masterKey(): Buffer {
   if (cachedKey) return cachedKey;
 
-  const keyPath = path.resolve(process.env.MASTER_KEY_PATH ?? "./storage/keys/master.key");
+  const keyPath = masterKeyPath();
   if (!fs.existsSync(keyPath)) {
     throw new Error(`Master key not found at ${keyPath}. Run \`npm run setup\`.`);
   }
 
-  const key = Buffer.from(fs.readFileSync(keyPath, "utf8").trim(), "base64");
-  if (key.length !== 32) {
-    throw new Error(`Master key at ${keyPath} must be 32 bytes (base64-encoded), got ${key.length}`);
-  }
-
-  cachedKey = key;
-  return key;
+  cachedKey = loadMasterKey(keyPath);
+  return cachedKey;
 }
 
 export function resetMasterKeyCache() {

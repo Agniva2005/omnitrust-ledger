@@ -19,6 +19,13 @@ function when(iso: string) {
   return `${iso.replace("T", " ").slice(0, 19)} UTC`;
 }
 
+const MASTER_KEY_CUSTODY: Record<string, { state: "ok" | "attention" | "absent"; detail: string }> = {
+  plaintext: { state: "attention", detail: "Plaintext local file: a copy of it decrypts every private key. Protect it with npm run key:custody." },
+  passphrase: { state: "ok", detail: "Wrapped under a passphrase (scrypt, AES-256-GCM). Still a local file, not an HSM or KMS." },
+  dpapi: { state: "ok", detail: "Protected by Windows DPAPI for this Windows user. Still a local file, not an HSM or KMS." },
+  unreadable: { state: "attention", detail: "The key file could not be read." },
+};
+
 function ServiceRow({ icon: Icon, name, detail, state }: { icon: typeof ShieldCheck; name: string; detail: React.ReactNode; state: "ok" | "attention" | "absent" }) {
   return (
     <li className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
@@ -146,6 +153,12 @@ export default async function DashboardPage() {
                     ? `#${trustServices.latestCrl.crlNumber}, issued ${when(trustServices.latestCrl.thisUpdate)}, ${trustServices.latestCrl.withinValidity ? "within its validity" : "past its next update"}`
                     : "none issued yet"
                 }
+              />
+              <ServiceRow
+                icon={KeyRound}
+                name="Master key custody"
+                state={trustServices.masterKey ? MASTER_KEY_CUSTODY[trustServices.masterKey].state : "absent"}
+                detail={trustServices.masterKey ? MASTER_KEY_CUSTODY[trustServices.masterKey].detail : "no key file found"}
               />
               <ServiceRow
                 icon={Anchor}

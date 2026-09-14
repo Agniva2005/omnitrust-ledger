@@ -2,7 +2,7 @@
 // states the attack, the control expected to stop it, and the exact result that counts as
 // the control holding. lib/security-lab/scenarios.ts implements them against real services.
 
-export type ScenarioCategory = "control" | "documents" | "signatures" | "pki" | "audit" | "authentication";
+export type ScenarioCategory = "control" | "documents" | "signatures" | "pki" | "keys" | "audit" | "authentication";
 
 /**
  * What an adversary can do. The in-scope capabilities are the ones scenarios grant and test;
@@ -17,6 +17,7 @@ export type AdversaryId =
   | "offline-content"
   | "key-compromise"
   | "online-guessing"
+  | "file-theft"
   | "host-compromise"
   | "ca-key-compromise"
   | "network"
@@ -71,6 +72,12 @@ export const ADVERSARIES: readonly Adversary[] = [
     inScope: true,
   },
   {
+    id: "file-theft",
+    label: "Copied files",
+    capability: "Obtains a copy of the database, the document storage and the master key file, but not the key's passphrase or the Windows account that protects it.",
+    inScope: true,
+  },
+  {
     id: "host-compromise",
     label: "Host compromise",
     capability: "Reads the database, the storage directory and the master key together, or runs code inside the application process.",
@@ -117,6 +124,7 @@ export type SecurityProperty =
   | "revocation"
   | "time of existence"
   | "log integrity"
+  | "key confidentiality"
   | "authentication";
 
 export type ScenarioDefinition = {
@@ -247,6 +255,16 @@ export const SCENARIOS: readonly ScenarioDefinition[] = [
     attack: "Present the detached CMS signature with a document whose bytes were changed.",
     defence: "The signed message-digest attribute covers the exact document bytes.",
     expected: "CMS verification INVALID",
+  },
+  {
+    id: "stolen-key-file",
+    adversary: "file-theft",
+    property: "key confidentiality",
+    title: "Steal a copy of a protected master key file",
+    category: "keys",
+    attack: "Copy a passphrase-protected master key file together with the database holding the encrypted private keys, then try to unwrap it with no passphrase and with a guessed one.",
+    defence: "The file holds the master key wrapped with AES-256-GCM under a scrypt-derived key (lib/crypto/key-custody.ts); without the passphrase it does not unwrap.",
+    expected: "Refused without the passphrase and with a guessed one; the right passphrase recovers the same key",
   },
   {
     id: "audit-row-edit",

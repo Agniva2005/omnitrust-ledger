@@ -5,7 +5,9 @@
 // and reports what the real verifier, integrity check or rate limiter then did. Every run
 // starts with assertSandbox(), so these functions refuse to execute against anything but a
 // throwaway database.
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { redactErrorForLog } from "@/lib/api";
 import { verifyAuditChain } from "@/lib/audit/integrity";
 import { GENESIS_HASH, computeEntryHash, serialiseMetadata } from "@/lib/audit/log";
@@ -13,7 +15,8 @@ import type { Actor } from "@/lib/auth/rbac";
 import { loginRateLimit, accountKey } from "@/lib/auth/rate-limit";
 import { authenticate } from "@/lib/auth/session";
 import { ALGORITHMS, type Algorithm } from "@/lib/crypto/orchestrator";
-import { encrypt } from "@/lib/crypto/symmetric";
+import { DEFAULT_SCRYPT_COST, KeyCustodyError, loadMasterKey, wrapWithPassphrase, writeMasterKeyFile } from "@/lib/crypto/key-custody";
+import { decryptString, encrypt, masterKey, masterKeyPath } from "@/lib/crypto/symmetric";
 import { prisma } from "@/lib/db";
 import { uploadDocument } from "@/lib/documents/service";
 import { signDocument } from "@/lib/documents/signing";
@@ -251,6 +254,52 @@ const IMPLEMENTATIONS: Record<string, () => Promise<Finding>> = {
       steps: ["Signed \"Deliver 500 units\" (a detached CMS signature is produced too)", "Verified the CMS signature against the original", "Verified it against \"Deliver 900 units\""],
       evidence: { original: genuine.status, altered: tampered.status, explanation: tampered.explanation },
     };
+  },
+
+  async "stolen-key-file"() {
+    const lab = await actors();
+    await signedDocument(lab);
+    const keyPair = await prisma.keyPair.findFirstOrThrow();
+    const passphrase = randomBytes(18).toString("base64url");
+    const stolen = path.join(path.dirname(masterKeyPath()), `stolen-copy-${randomBytes(4).toString("hex")}.key`);
+    writeMasterKeyFile(stolen, wrapWithPassphrase(masterKey(), passphrase));
+
+    const attempt = (candidate: string | null): Buffer | string => {
+      try {
+        return loadMasterKey(stolen, { passphrase: candidate });
+      } catch (error) {
+        if (error instanceof KeyCustodyError) return error.message;
+        throw error;
+      }
+    };
+    try {
+      const withoutPassphrase = attempt(null);
+      const guessed = attempt("guessed-passphrase-2026");
+      const legitimate = attempt(passphrase);
+      const recovered = Buffer.isBuffer(legitimate) && legitimate.equals(masterKey());
+      // Control: with the key recovered, the copied private key does decrypt (its contents are not recorded).
+      const privateKeyReadable = recovered && decryptString(keyPair.encryptedPrivateKey).includes("PRIVATE KEY");
+      const refused = (outcome: Buffer | string) => typeof outcome === "string";
+      return {
+        held: refused(withoutPassphrase) && refused(guessed) && recovered && privateKeyReadable,
+        observed: `Without the passphrase: ${refused(withoutPassphrase) ? "refused" : "UNWRAPPED"}; with a guessed passphrase: ${refused(guessed) ? "refused" : "UNWRAPPED"}; with the right passphrase: ${recovered ? "the same key, which decrypts the copied private key" : "not recovered"}`,
+        steps: [
+          "Signed a document, so an encrypted private key exists in the database",
+          `Wrapped the sandbox master key under a random passphrase (scrypt N=${DEFAULT_SCRYPT_COST.N}, r=${DEFAULT_SCRYPT_COST.r}, p=${DEFAULT_SCRYPT_COST.p}; AES-256-GCM) and copied the file`,
+          "Tried to unwrap the copy with no passphrase",
+          "Tried a guessed passphrase",
+          "Unwrapped it with the right passphrase, as a control",
+        ],
+        evidence: {
+          withoutPassphrase: refused(withoutPassphrase) ? withoutPassphrase : "unwrapped",
+          guessedPassphrase: refused(guessed) ? guessed : "unwrapped",
+          rightPassphraseRecoversKey: recovered,
+          limitation: "With the default plaintext key file the same copy decrypts every private key directly; this scenario tests the protected configuration, not the default.",
+        },
+      };
+    } finally {
+      await fs.rm(stolen, { force: true });
+    }
   },
 
   async "audit-row-edit"() {
