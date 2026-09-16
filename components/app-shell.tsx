@@ -467,7 +467,8 @@ export function AppShell({ user, children }: { user: { email: string; role: stri
         <div className="flex-1 overflow-y-auto px-3 py-4">
           <NavList pathname={pathname} compactable />
         </div>
-        <div className="space-y-2 border-t border-sidebar-border p-3">
+        {/* Only the collapsed sidebar needs this strip: expanded, it would be an empty bordered gap. */}
+        <div className="sidebar-expand hidden border-t border-sidebar-border p-3">
           <button
             type="button"
             onClick={toggleSidebar}
@@ -477,9 +478,6 @@ export function AppShell({ user, children }: { user: { email: string; role: stri
           >
             <PanelLeftOpen aria-hidden className="h-4 w-4" />
           </button>
-          <div className="sidebar-label rounded-lg border border-warning/25 bg-warning/5 px-2.5 py-2 text-[11px] leading-snug text-muted-foreground">
-            <span className="font-semibold text-warning">Demo build.</span> Local CA and local key storage; not for production use.
-          </div>
         </div>
       </aside>
 

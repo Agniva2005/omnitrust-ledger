@@ -34,7 +34,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+        <div className="mx-auto flex h-16 w-full max-w-content items-center justify-between px-4 sm:px-6 lg:px-8 2xl:px-10">
           <Link href="/" className="flex items-center gap-2.5">
             <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-primary to-hybrid text-[11px] font-bold text-primary-foreground shadow-sm">
               OT
@@ -51,39 +51,32 @@ export default function HomePage() {
 
       <section className="relative overflow-hidden border-b">
         <div aria-hidden className="bg-grid absolute inset-0 [mask-image:radial-gradient(ellipse_at_top,black_25%,transparent_70%)]" />
-        <div aria-hidden className="absolute left-1/2 top-0 h-80 w-[40rem] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative mx-auto max-w-6xl px-6 py-20 text-center sm:py-24">
+        <div aria-hidden className="absolute left-1/2 top-0 h-64 w-[48rem] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative mx-auto w-full max-w-content px-4 py-14 text-center sm:px-6 sm:py-16 lg:px-8 2xl:px-10">
           <p className="mx-auto inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground shadow-card">
             <FileSignature aria-hidden className="h-3.5 w-3.5 text-primary" />
             PKI-driven document signing, classical to post-quantum
           </p>
-          <h1 className="mx-auto mt-6 max-w-3xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl">OmniTrust Ledger</h1>
-          <p className="mx-auto mt-5 max-w-2xl text-balance text-lg leading-relaxed text-muted-foreground">
+          <h1 className="mx-auto mt-5 max-w-4xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl 2xl:text-6xl">OmniTrust Ledger</h1>
+          <p className="mx-auto mt-4 max-w-3xl text-balance text-base leading-relaxed text-muted-foreground sm:text-lg">
             PKI-driven document management with algorithm-agnostic signature orchestration: sign under {algorithms.length} algorithms, verify every step,
             and keep evidence that survives revocation and outside scrutiny.
           </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Button asChild size="lg">
-              <Link href="/login">
-                Open the demo <ArrowRight aria-hidden />
-              </Link>
-            </Button>
-          </div>
         </div>
       </section>
 
-      <main className="mx-auto max-w-6xl space-y-20 px-6 py-16">
+      <main className="mx-auto w-full max-w-content space-y-16 px-4 py-14 sm:px-6 lg:px-8 lg:py-16 2xl:px-10">
         <section aria-labelledby="algorithms-heading">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <h2 id="algorithms-heading" className="text-2xl font-semibold tracking-tight">Signature algorithms</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
                 Read from the provider registry at render time. Adding an algorithm is one provider file and one registry entry; this page picks it
                 up without being edited, and an automated test proves the rest of the system does too.
               </p>
             </div>
           </div>
-          <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {algorithms.map((algorithm, index) => (
               <li
                 key={algorithm.id}
@@ -123,7 +116,7 @@ export default function HomePage() {
 
         <section aria-labelledby="proof-heading">
           <h2 id="proof-heading" className="text-2xl font-semibold tracking-tight">What the demo lets you check</h2>
-          <ul className="mt-8 grid gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="mt-6 grid gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-2 lg:grid-cols-3">
             {PROOF_POINTS.map(({ icon: Icon, title, detail }) => (
               <li key={title} className="bg-card p-6">
                 <span className="grid h-9 w-9 place-items-center rounded-lg border bg-accent text-accent-foreground">
@@ -167,7 +160,7 @@ export default function HomePage() {
       </main>
 
       <footer className="border-t">
-        <div className="mx-auto max-w-6xl px-6 py-6">
+        <div className="mx-auto w-full max-w-content px-4 py-6 sm:px-6 lg:px-8 2xl:px-10">
           <DemoNotice />
         </div>
       </footer>
