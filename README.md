@@ -290,6 +290,7 @@ The tests exercise failure paths with real cryptography and real data, not mocks
 - The session cookie is `secure` only in production builds.
 - Authorisation is by role: every role, including VIEWER, can read and export every document.
 - No multi-factor authentication.
+- **A demonstration-only tamper route is built in.** An ADMIN can replace a document's stored bytes, flip a ciphertext or signature bit, and restore the original, from the document page or `POST /api/documents/[id]/demo-tamper`. It exists so detection can be shown live on a document you choose; it weakens no control and fakes no verdict, the original bytes are kept so Restore is exact, and every action is written to the audit log. It is gated on a separate `demo:tamper` capability held by ADMIN alone — **a real deployment would remove the route and the capability.**
 
 **Integrity and anchoring**
 - The audit log is tamper-evident, not tamper-proof. Entries after the latest checkpoint are protected by the hash chain alone. Deleting the newest checkpoint together with the entries it covers is detectable only through an anchor.

@@ -11,10 +11,17 @@ import { getSession } from "@/lib/auth/session";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 import { getDocument } from "@/lib/documents/service";
 import { signaturesForDocument } from "@/lib/documents/signing";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function VerifyPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function VerifyPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ version?: string }>;
+}) {
   const actor = await getSession();
   if (!actor) redirect("/login");
 
@@ -25,9 +32,45 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
   });
 
   const signatures = await signaturesForDocument(document.id);
+
+  // ?version=N verifies that version instead of the latest, so an earlier signed version can
+  // be checked after a new one has been uploaded. An absent or unknown value falls back.
+  const requested = Number.parseInt((await searchParams).version ?? "", 10);
+  const targetVersion = document.versions.some((version) => version.versionNumber === requested)
+    ? requested
+    : document.versions[0]?.versionNumber;
   const latest = signatures.find(
-    (signature) => signature.documentVersion.versionNumber === document.versions[0]?.versionNumber,
+    (signature) => signature.documentVersion.versionNumber === targetVersion,
   );
+
+  const versionSwitcher =
+    document.versions.length > 1 ? (
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3 shadow-card">
+        <span className="text-xs text-muted-foreground">Verify version:</span>
+        {[...document.versions]
+          .sort((a, b) => a.versionNumber - b.versionNumber)
+          .map((version) => {
+            const signed = signatures.some(
+              (signature) => signature.documentVersion.versionNumber === version.versionNumber,
+            );
+            const active = version.versionNumber === targetVersion;
+            return (
+              <Link
+                key={version.id}
+                href={`/documents/${document.id}/verify?version=${version.versionNumber}`}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "rounded-lg border px-2.5 py-1 font-mono text-xs transition-colors",
+                  active ? "border-primary bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent",
+                )}
+              >
+                v{version.versionNumber}
+                {!signed && <span className="ml-1.5 font-sans text-[10px]">unsigned</span>}
+              </Link>
+            );
+          })}
+      </div>
+    ) : null;
 
   return (
     <div className="space-y-6">
@@ -53,15 +96,19 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
           </CardHeader>
         </Card>
       ) : !latest ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Not yet signed</CardTitle>
-            <CardDescription>
-              Version {document.versions[0]?.versionNumber} of this document has no signature, so
-              there is nothing to verify. This is neither authentic nor invalid.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <div className="space-y-4">
+          {versionSwitcher}
+          <Card>
+            <CardHeader>
+              <CardTitle>Not yet signed</CardTitle>
+              <CardDescription>
+                Version {targetVersion} of this document has no signature, so there is nothing to
+                verify. This is neither authentic nor invalid.
+                {document.versions.length > 1 && " An earlier version can be verified above."}
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
       ) : (
         <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_22rem] 3xl:grid-cols-[minmax(0,1fr)_26rem]">
           <Card className="2xl:sticky 2xl:top-20 2xl:col-start-2 2xl:row-start-1">
@@ -102,8 +149,9 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
             </CardContent>
           </Card>
 
-          <div className="min-w-0 2xl:col-start-1 2xl:row-start-1">
-            <VerifyRunner documentId={document.id} />
+          <div className="min-w-0 space-y-4 2xl:col-start-1 2xl:row-start-1">
+            {versionSwitcher}
+            <VerifyRunner documentId={document.id} version={targetVersion} />
           </div>
         </div>
       )}

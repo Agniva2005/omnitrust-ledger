@@ -1,7 +1,9 @@
-import { Download, FileCheck2, FileText, Fingerprint, GitBranch, Hash, TerminalSquare } from "lucide-react";
+import { Download, FileCheck2, FilePlus2, FileText, Fingerprint, FlaskConical, GitBranch, Hash, TerminalSquare } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { NewVersionPanel } from "@/app/(app)/documents/[id]/new-version-panel";
 import { SignPanel, type CertificateOption } from "@/app/(app)/documents/[id]/sign-panel";
+import { TamperPanel } from "@/app/(app)/documents/[id]/tamper-panel";
 import { CopyButton } from "@/components/copy-button";
 import { PageHeader } from "@/components/page-header";
 import { SecurityClassBadge } from "@/components/security-class-badge";
@@ -20,6 +22,7 @@ import { NotFoundError } from "@/lib/api";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
 import { orchestrator } from "@/lib/crypto/orchestrator";
+import { tamperState } from "@/lib/documents/demo-tamper";
 import { assertDocumentState, nextStates } from "@/lib/documents/lifecycle";
 import { getDocument } from "@/lib/documents/service";
 import { signaturesForDocument } from "@/lib/documents/signing";
@@ -75,6 +78,9 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         signatureBytes: signatureSize(certificate.algorithm),
       }))
     : [];
+
+  // Reads and hashes the stored blob, so it is computed only for the role that can act on it.
+  const tamper = can(actor.role, "demo:tamper") ? await tamperState(document.id) : null;
 
   const all = orchestrator.describeAll();
   const listFormat = (items: string[], type: "conjunction" | "disjunction") => new Intl.ListFormat("en", { style: "long", type }).format(items);
@@ -180,6 +186,48 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
       )}
       </div>
 
+      <div className={cn("grid items-start gap-6", can(actor.role, "document:upload") && tamper && "3xl:grid-cols-2")}>
+        {can(actor.role, "document:upload") && latestVersion && (
+          <Card className="min-w-0">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FilePlus2 aria-hidden className="h-4 w-4 text-primary" /> Upload a new version
+              </CardTitle>
+              <CardDescription>
+                A signed version is immutable. Uploading edited content creates v{(latestVersion.versionNumber ?? 0) + 1} with its own hash,
+                leaving v{latestVersion.versionNumber} and its signature exactly as they were — so the two can be compared, and the new
+                one signed in its own right.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <NewVersionPanel
+                documentId={document.id}
+                currentVersion={latestVersion.versionNumber}
+                currentHash={latestVersion.hash}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {tamper && (
+          <Card className="min-w-0 border-dashed">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FlaskConical aria-hidden className="h-4 w-4 text-primary" /> Tamper with this document
+              </CardTitle>
+              <CardDescription>
+                Demonstration only, and available to ADMIN alone. These perform the alteration an attacker with storage or
+                database access would perform, then leave verification to notice it. No verdict is faked: the bytes really
+                change, and the verifier really recomputes.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TamperPanel documentId={document.id} hasSignature={latestSigned} initialState={tamper} />
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>Signatures</CardTitle>
@@ -256,35 +304,62 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>Versions</CardTitle>
-          <CardDescription>Each version records the hash of the bytes stored for it. Blobs are encrypted at rest with AES-256-GCM.</CardDescription>
+          <CardDescription>
+            Each version records the hash of the bytes stored for it, so any two versions can be compared by their
+            fingerprints alone. Blobs are encrypted at rest with AES-256-GCM.
+          </CardDescription>
         </CardHeader>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="pl-5">Version</TableHead>
               <TableHead>SHA-256</TableHead>
+              <TableHead>Compared with previous</TableHead>
               <TableHead>Signature</TableHead>
-              <TableHead>Stored at</TableHead>
-              <TableHead className="pr-5">Created (UTC)</TableHead>
+              <TableHead>Created (UTC)</TableHead>
+              <TableHead className="pr-5" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {document.versions.map((version) => {
               const signature = signatures.find((candidate) => candidate.documentVersion.versionNumber === version.versionNumber);
+              const previous = document.versions.find((candidate) => candidate.versionNumber === version.versionNumber - 1);
               return (
                 <TableRow key={version.id}>
-                  <TableCell className="pl-5 font-mono text-xs">v{version.versionNumber}</TableCell>
-                  <TableCell className="max-w-[18rem] font-mono text-xs [overflow-wrap:anywhere]">{version.hash}</TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className="pl-5 align-top">
+                    <div className="font-mono text-xs">v{version.versionNumber}</div>
+                    <div className="mt-1 font-mono text-[11px] text-muted-foreground [overflow-wrap:anywhere]">{version.storagePath}</div>
+                  </TableCell>
+                  <TableCell className="max-w-[18rem] align-top font-mono text-xs [overflow-wrap:anywhere]">{version.hash}</TableCell>
+                  <TableCell className="align-top text-xs">
+                    {previous ? (
+                      <>
+                        <span className="font-medium text-destructive">content changed</span>
+                        <div className="mt-1 text-muted-foreground">
+                          v{previous.versionNumber} hashed to{" "}
+                          <span className="font-mono [overflow-wrap:anywhere]">{previous.hash.slice(0, 16)}…</span>
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">first version</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="align-top text-xs">
                     {signature ? (
                       `${orchestrator.displayName(signature.algorithm)} by ${signature.signedBy.email}`
                     ) : (
                       <span className="text-muted-foreground">unsigned</span>
                     )}
                   </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{version.storagePath}</TableCell>
-                  <TableCell className="whitespace-nowrap pr-5 font-mono text-xs text-muted-foreground">
+                  <TableCell className="whitespace-nowrap align-top font-mono text-xs text-muted-foreground">
                     {version.createdAt.toISOString().replace("T", " ").slice(0, 19)}
+                  </TableCell>
+                  <TableCell className="pr-5 align-top">
+                    {signature && can(actor.role, "document:verify") && (
+                      <Link className={exportLink} href={`/documents/${document.id}/verify?version=${version.versionNumber}`}>
+                        <Fingerprint aria-hidden /> Verify
+                      </Link>
+                    )}
                   </TableCell>
                 </TableRow>
               );

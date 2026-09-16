@@ -26,7 +26,8 @@ export type Capability =
   | "audit:checkpoint"
   | "anchor:read"
   | "anchor:create"
-  | "lab:run";
+  | "lab:run"
+  | "demo:tamper";
 
 const CAPABILITIES: Record<Capability, readonly Role[]> = {
   "document:read": ROLES,
@@ -42,6 +43,7 @@ const CAPABILITIES: Record<Capability, readonly Role[]> = {
   "anchor:read": ROLES,
   "anchor:create": ["ADMIN"],
   "lab:run": ["ADMIN"],
+  "demo:tamper": ["ADMIN"],
 };
 
 export type Actor = { userId: string; email: string; role: Role };

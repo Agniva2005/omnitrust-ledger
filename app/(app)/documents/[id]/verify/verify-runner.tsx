@@ -85,7 +85,7 @@ function TrustRow({ label, value }: { label: string; value: string | null }) {
   );
 }
 
-export function VerifyRunner({ documentId }: { documentId: string }) {
+export function VerifyRunner({ documentId, version }: { documentId: string; version?: number }) {
   const router = useRouter();
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [notSigned, setNotSigned] = useState(false);
@@ -98,7 +98,11 @@ export function VerifyRunner({ documentId }: { documentId: string }) {
     setResult(null);
     setNotSigned(false);
 
-    const response = await fetch(`/api/documents/${documentId}/verify`, { method: "POST" });
+    const response = await fetch(`/api/documents/${documentId}/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(version === undefined ? {} : { version }),
+    });
     const body = await response.json().catch(() => ({}));
 
     if (response.status === 409 && body.notSigned) {

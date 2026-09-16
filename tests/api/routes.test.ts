@@ -27,6 +27,7 @@ const document = await import("@/app/api/documents/[id]/route");
 const versions = await import("@/app/api/documents/[id]/versions/route");
 const sign = await import("@/app/api/documents/[id]/sign/route");
 const verify = await import("@/app/api/documents/[id]/verify/route");
+const demoTamper = await import("@/app/api/documents/[id]/demo-tamper/route");
 const certificates = await import("@/app/api/certificates/route");
 const revoke = await import("@/app/api/certificates/[id]/revoke/route");
 const auditVerify = await import("@/app/api/audit/verify/route");
@@ -217,6 +218,39 @@ describe("signing and verification", () => {
     expect(verified.body.result.outcome, evidence).toBe("VALID");
     expect(verified.body.result.steps.length).toBeGreaterThanOrEqual(10);
     expect(verified.body.result.trust.trustedTime).not.toBeNull();
+  }, 30_000);
+
+  it("POST /api/documents/:id/demo-tamper: 403 below ADMIN, 400 for an unknown action, then alters and restores", async () => {
+    const created = await uploadAsSigner();
+    const certificate = await issueAs("signer@demo");
+    await as("signer@demo");
+    await sign.POST(json(`/api/documents/${created.id}/sign`, "POST", { certificateId: certificate.id }), params(created.id));
+
+    const url = `/api/documents/${created.id}/demo-tamper`;
+
+    // The capability is ADMIN-only, so the role that may sign still may not tamper.
+    expect((await read(await demoTamper.POST(json(url, "POST", { action: "signature" }), params(created.id)))).status).toBe(403);
+
+    await as("admin@demo");
+    expect((await read(await demoTamper.POST(json(url, "POST", { action: "nonsense" }), params(created.id)))).status).toBe(400);
+
+    const altered = await read(await demoTamper.POST(json(url, "POST", { action: "signature" }), params(created.id)));
+    expect(altered.status).toBe(200);
+    expect(altered.body.state.signatureAltered).toBe(true);
+
+    const broken = await read(await verify.POST(json("/x", "POST"), params(created.id)));
+    expect(broken.body.result.outcome).toBe("INVALID");
+    expect(broken.body.result.reason).toBe("SIGNATURE_INVALID");
+
+    const restored = await read(await demoTamper.POST(json(url, "POST", { action: "restore" }), params(created.id)));
+    expect(restored.status).toBe(200);
+    expect(restored.body.state.signatureAltered).toBe(false);
+
+    const state = await read(await demoTamper.GET(json(url, "GET"), params(created.id)));
+    expect(state.status).toBe(200);
+    expect(state.body.state.storedHash).toBe(state.body.state.signedHash);
+
+    expect((await read(await verify.POST(json("/x", "POST"), params(created.id)))).body.result.outcome).toBe("VALID");
   }, 30_000);
 });
 
