@@ -22,8 +22,8 @@ export async function POST(request: Request) {
   try {
     const actor = await getSession();
     if (!actor) throw new AuthenticationError();
-    const body = (await request.json().catch(() => null)) as { scenario?: unknown } | null;
-    return NextResponse.json({ run: await runSecurityLab(actor, body?.scenario) });
+    const body = (await request.json().catch(() => null)) as { scenario?: unknown; documentId?: unknown } | null;
+    return NextResponse.json({ run: await runSecurityLab(actor, body?.scenario, body?.documentId) });
   } catch (error) {
     return errorResponse(error);
   }

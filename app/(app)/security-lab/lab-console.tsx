@@ -13,8 +13,11 @@ type Run = {
   runId: string;
   durationMs: number;
   sandboxRemoved: boolean;
+  subject: { filename: string; byteLength: number } | null;
   production: { untouched: boolean; before: Record<string, unknown>; after: Record<string, unknown> };
 };
+
+export type SubjectOption = { id: string; filename: string };
 
 const OUTCOME_STYLE: Record<ScenarioResult["outcome"], { label: string; variant: "success" | "destructive" | "warning"; tone: string; icon: typeof CircleCheck }> = {
   HELD: { label: "CONTROL HELD", variant: "success", tone: "border-success/35 bg-success/[0.06]", icon: CircleCheck },
@@ -23,11 +26,22 @@ const OUTCOME_STYLE: Record<ScenarioResult["outcome"], { label: string; variant:
   ERROR: { label: "SCENARIO ERROR", variant: "warning", tone: "border-warning/40 bg-warning/[0.07]", icon: CircleAlert },
 };
 
-export function LabConsole({ scenarios, canRun = true }: { scenarios: readonly ScenarioDefinition[]; canRun?: boolean }) {
+export function LabConsole({
+  scenarios,
+  canRun = true,
+  documents = [],
+}: {
+  scenarios: readonly ScenarioDefinition[];
+  canRun?: boolean;
+  documents?: readonly SubjectOption[];
+}) {
   const [runs, setRuns] = useState<Record<string, Run>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [category, setCategory] = useState<string>("all");
+  const [subjectId, setSubjectId] = useState<string>("");
+
+  const subjectCount = scenarios.filter((scenario) => scenario.acceptsSubject).length;
 
   const categories = useMemo(() => ["all", ...Array.from(new Set(scenarios.map((scenario) => scenario.category)))], [scenarios]);
   const visible = category === "all" ? scenarios : scenarios.filter((scenario) => scenario.category === category);
@@ -39,10 +53,13 @@ export function LabConsole({ scenarios, canRun = true }: { scenarios: readonly S
   async function run(id: string) {
     setBusy(id);
     setErrors((current) => ({ ...current, [id]: "" }));
+    // A chosen document is sent only to the scenarios whose subject is a document; the rest
+    // attack the log or the login and would reject it.
+    const usesSubject = subjectId !== "" && scenarios.find((scenario) => scenario.id === id)?.acceptsSubject;
     const response = await fetch("/api/security-lab", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scenario: id }),
+      body: JSON.stringify(usesSubject ? { scenario: id, documentId: subjectId } : { scenario: id }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) setErrors((current) => ({ ...current, [id]: body.error ?? "The scenario could not be run" }));
@@ -65,6 +82,33 @@ export function LabConsole({ scenarios, canRun = true }: { scenarios: readonly S
           </div>
         ))}
       </div>
+
+      {canRun && documents.length > 0 && (
+        <div className="rounded-xl border bg-card p-4 shadow-card">
+          <label htmlFor="lab-subject" className="text-sm font-medium">
+            Subject document
+          </label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            The {subjectCount} scenarios whose subject is a document can attack one of yours instead of content the sandbox
+            invents. The sandbox keeps its own database, storage and master key, and cannot read this application&apos;s
+            encrypted blobs; a plaintext copy of the document you pick is placed in the run directory and deleted with it.
+            Nothing is written back.
+          </p>
+          <select
+            id="lab-subject"
+            value={subjectId}
+            onChange={(event) => setSubjectId(event.target.value)}
+            className="mt-3 w-full max-w-lg rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">The sandbox&apos;s own invented content</option>
+            {documents.map((document) => (
+              <option key={document.id} value={document.id}>
+                {document.filename}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div role="group" aria-label="Filter scenarios by category" className="flex flex-wrap gap-1.5">
         {categories.map((name) => (
@@ -116,6 +160,18 @@ export function LabConsole({ scenarios, canRun = true }: { scenarios: readonly S
                     <dt className="inline text-muted-foreground">Holds if: </dt>
                     <dd className="inline font-mono text-xs">{scenario.expected}</dd>
                   </div>
+                  {subjectId !== "" && (
+                    <div>
+                      <dt className="inline text-muted-foreground">Subject: </dt>
+                      <dd className="inline">
+                        {scenario.acceptsSubject ? (
+                          documents.find((document) => document.id === subjectId)?.filename
+                        ) : (
+                          <span className="text-muted-foreground">not a document scenario; uses the sandbox&apos;s own content</span>
+                        )}
+                      </dd>
+                    </div>
+                  )}
                 </dl>
                 <div hidden={!canRun}>
                   <Button size="sm" onClick={() => run(scenario.id)} disabled={busy !== null || !canRun}>
@@ -136,6 +192,11 @@ export function LabConsole({ scenarios, canRun = true }: { scenarios: readonly S
                       <span className="text-xs text-muted-foreground">{result.durationMs} ms</span>
                     </div>
                     <p>{result.result.observed}</p>
+                    {result.subject && (
+                      <p className="text-xs text-muted-foreground">
+                        Subject: {result.subject.filename} ({result.subject.byteLength.toLocaleString()} bytes from this installation)
+                      </p>
+                    )}
                     {result.result.steps.length > 0 && (
                       <ol className="list-decimal space-y-1 pl-5 text-xs text-muted-foreground">
                         {result.result.steps.map((step) => (

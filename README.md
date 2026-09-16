@@ -260,7 +260,7 @@ The tests exercise failure paths with real cryptography and real data, not mocks
 - **Every verification failure mode,** including algorithm confusion, key substitution, time-stamp swaps, forged CRLs and signatures proven to predate a revoked or not-yet-valid certificate.
 - **Audit log attacks:** row edits, re-attribution and deletion; a consistent rewrite that fools the hash chain but not a signed checkpoint; truncation.
 - **Every API route at the route level,** with a scan of every response body for key material; a coverage test fails if a route has no route-level test.
-- **Security Lab scenarios** run for real, and an isolation guard refuses to let them touch non-sandbox data.
+- **Security Lab scenarios** run for real, and an isolation guard refuses to let them touch non-sandbox data. The 8 scenarios whose subject is a document can be pointed at one of yours: the sandbox still gets its own database, storage and master key and writes nothing back, but a plaintext copy of the document you choose is placed in the run directory (the sandbox has its own key and could not otherwise read it) and deleted with it. A test runs all 8 that way and asserts the evidence names the document, so a silent fall back to invented content cannot pass.
 - **Supporting records:**
   - [`docs/upgrade-log.md`](docs/upgrade-log.md) records each upgrade phase, the evidence, and the bugs found along the way;
   - [`docs/audit/02-security-audit.md`](docs/audit/02-security-audit.md) is the security audit;

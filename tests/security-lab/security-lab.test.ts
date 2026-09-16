@@ -3,9 +3,10 @@
 // a sandbox; and one full sandboxed run must leave the calling process's database untouched.
 import fs from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AuthorizationError, type Actor } from "@/lib/auth/rbac";
 import { loginRateLimit } from "@/lib/auth/rate-limit";
+import { sha256Hex } from "@/lib/crypto/hash";
 import { prisma } from "@/lib/db";
 import { SCENARIOS, isScenarioId } from "@/lib/security-lab/catalog";
 import { SandboxViolationError, assertSandbox, labRoot } from "@/lib/security-lab/guard";
@@ -48,6 +49,53 @@ describe("every attack, run for real against the test database", () => {
     const result = await runScenario(id);
     expect(result.outcome, `${result.observed} ${JSON.stringify(result.evidence)}`).toBe("HELD");
     expect(result.observed.length).toBeGreaterThan(0);
+  }, 60_000);
+});
+
+describe("scenarios given a document from the application as their subject", () => {
+  const subjectFile = path.join(LAB_ROOT, "subject-under-test.bin");
+  const SUBJECT_NAME = "quarterly-report.xlsx";
+  const SUBJECT = Buffer.from("Q2 actuals: 769.5 MT against a target of 885.0 MT\n");
+  const withSubject = SCENARIOS.filter((scenario) => scenario.acceptsSubject).map((scenario) => [scenario.id] as const);
+
+  beforeAll(() => {
+    fs.mkdirSync(LAB_ROOT, { recursive: true });
+    fs.writeFileSync(subjectFile, SUBJECT);
+  });
+
+  beforeEach(async () => {
+    await resetDatabase();
+    loginRateLimit.clear();
+    process.env.SECURITY_LAB_SUBJECT = subjectFile;
+    process.env.SECURITY_LAB_SUBJECT_NAME = SUBJECT_NAME;
+    process.env.SECURITY_LAB_SUBJECT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  });
+
+  afterEach(() => {
+    delete process.env.SECURITY_LAB_SUBJECT;
+    delete process.env.SECURITY_LAB_SUBJECT_NAME;
+    delete process.env.SECURITY_LAB_SUBJECT_TYPE;
+  });
+
+  it("offers a subject only where the subject is a document", () => {
+    expect(withSubject.length).toBeGreaterThan(0);
+    // The log and the login are not documents, so offering one there would be meaningless.
+    for (const scenario of SCENARIOS.filter((candidate) => ["audit", "authentication"].includes(candidate.category))) {
+      expect(scenario.acceptsSubject ?? false).toBe(false);
+    }
+  });
+
+  it.each(withSubject)("%s: the control still holds, and the evidence names the document", async (id) => {
+    const result = await runScenario(id);
+    expect(result.outcome, `${result.observed} ${JSON.stringify(result.evidence)}`).toBe("HELD");
+    // Without this the run could quietly fall back to invented content and still report HELD.
+    expect(result.steps.join(" ")).toContain(SUBJECT_NAME);
+  }, 60_000);
+
+  it("signs the chosen bytes rather than content of its own", async () => {
+    await runScenario("control-untouched");
+    const version = await prisma.documentVersion.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
+    expect(version.hash).toBe(sha256Hex(SUBJECT));
   }, 60_000);
 });
 
@@ -109,6 +157,11 @@ describe("a full sandboxed run", () => {
     expect(() => listScenarios(verifier)).toThrow(AuthorizationError);
     await expect(runSecurityLab(verifier, "control-untouched")).rejects.toThrow(AuthorizationError);
     await expect(runSecurityLab(admin, "not-a-scenario")).rejects.toThrow(/Unknown Security Lab scenario/);
+  });
+
+  it("takes a subject document only where the scenario acts on one, and only if it exists", async () => {
+    await expect(runSecurityLab(admin, "audit-row-edit", "any-document")).rejects.toThrow(/cannot take one as its subject/);
+    await expect(runSecurityLab(admin, "document-substitution", "no-such-document")).rejects.toThrow(/Document not found/);
   });
 
   it("runs in its own process and database, deletes the sandbox, and leaves this database untouched", async () => {

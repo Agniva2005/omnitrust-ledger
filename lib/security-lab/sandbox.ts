@@ -54,7 +54,10 @@ export type SandboxRun = {
   sandboxRemoved: boolean;
 };
 
-export async function runScenarioInSandbox(id: string): Promise<SandboxRun> {
+/** A document from the application to use as the scenario's subject, already decrypted. */
+export type SandboxSubject = { bytes: Buffer; filename: string; mimeType: string };
+
+export async function runScenarioInSandbox(id: string, chosen?: SandboxSubject): Promise<SandboxRun> {
   const template = ensureTemplate();
   const runId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
   const directory = path.join(labRoot(), "runs", runId);
@@ -66,6 +69,11 @@ export async function runScenarioInSandbox(id: string): Promise<SandboxRun> {
   fs.mkdirSync(path.dirname(key), { recursive: true });
   fs.copyFileSync(template, database);
   fs.writeFileSync(key, randomBytes(32).toString("base64"));
+
+  // The child has its own master key and cannot read the application's blobs, so a chosen
+  // document travels as plaintext in the run directory, deleted with the rest of the sandbox.
+  const subjectFile = path.join(directory, "subject.bin");
+  if (chosen) fs.writeFileSync(subjectFile, chosen.bytes);
 
   const started = Date.now();
   try {
@@ -84,6 +92,13 @@ export async function runScenarioInSandbox(id: string): Promise<SandboxRun> {
             JWT_SECRET: randomBytes(32).toString("hex"),
             SECURITY_LAB_ROOT: labRoot(),
             OMNITRUST_SECURITY_LAB: "1",
+            ...(chosen
+              ? {
+                  SECURITY_LAB_SUBJECT: subjectFile,
+                  SECURITY_LAB_SUBJECT_NAME: chosen.filename,
+                  SECURITY_LAB_SUBJECT_TYPE: chosen.mimeType,
+                }
+              : {}),
             // Scenarios never anchor; make sure they could not reach a real chain if they tried.
             ANCHOR_RPC_URL: "http://127.0.0.1:9",
           },

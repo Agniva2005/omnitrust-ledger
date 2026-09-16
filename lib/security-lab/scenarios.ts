@@ -59,17 +59,61 @@ function otherAlgorithm(algorithm: Algorithm): Algorithm {
   return other;
 }
 
+type Subject = { bytes: Buffer; filename: string; mimeType: string };
+
+/**
+ * The document this run was asked to attack, when the caller chose one in the application.
+ *
+ * The sandbox generates its own master key and so cannot decrypt the application's blobs; the
+ * sandbox manager decrypts the chosen document once and leaves a plaintext copy in the run
+ * directory, which is deleted with everything else afterwards. Nothing is written back, and the
+ * sandbox still reaches no application database, storage root or key.
+ */
+async function subject(): Promise<Subject | null> {
+  const file = process.env.SECURITY_LAB_SUBJECT;
+  if (!file) return null;
+  return {
+    bytes: await fs.readFile(file),
+    filename: process.env.SECURITY_LAB_SUBJECT_NAME || "subject.bin",
+    mimeType: process.env.SECURITY_LAB_SUBJECT_TYPE || "application/octet-stream",
+  };
+}
+
+/** Different bytes, and so a different hash, from the same starting content. */
+function altered(bytes: Buffer): Buffer {
+  const copy = Buffer.from(bytes);
+  copy[copy.length - 1] ^= 0x01;
+  return copy;
+}
+
+/**
+ * The "Signed ..." step, naming the chosen document so the evidence of every run says which
+ * file was attacked, and falling back to the scenario's own wording when none was chosen.
+ */
+function signedStep(chosen: Subject | null, fallback = "a document"): string {
+  return `Signed ${chosen ? chosen.filename : fallback}`;
+}
+
 async function signedDocument(
   { signer }: Actors,
-  options: { text?: string; certificateId?: string } = {},
+  options: { text?: string; certificateId?: string; variant?: boolean } = {},
 ) {
   const certificateId =
     options.certificateId ?? (await issueCertificate({ actor: signer, algorithm: CA_ALGORITHM })).id;
-  const content = Buffer.from(options.text ?? `Security Lab sandbox document ${Date.now()} ${Math.random()}`);
+  const chosen = await subject();
+  const content = chosen
+    ? options.variant
+      ? altered(chosen.bytes)
+      : chosen.bytes
+    : Buffer.from(options.text ?? `Security Lab sandbox document ${Date.now()} ${Math.random()}`);
   const document = await uploadDocument({
     actor: signer,
-    filename: `lab-${Math.random().toString(36).slice(2)}.txt`,
-    mimeType: "text/plain",
+    filename: chosen
+      ? options.variant
+        ? `altered-${chosen.filename}`
+        : chosen.filename
+      : `lab-${Math.random().toString(36).slice(2)}.txt`,
+    mimeType: chosen ? chosen.mimeType : "text/plain",
     bytes: content,
   });
   await signDocument({ actor: signer, documentId: document.id, certificateId });
@@ -77,7 +121,7 @@ async function signedDocument(
     where: { documentVersion: { documentId: document.id } },
     include: { documentVersion: true },
   });
-  return { document, signature, content, certificateId };
+  return { document, signature, content, certificateId, subject: chosen };
 }
 
 async function verdict(actors: Actors, documentId: string) {
@@ -121,16 +165,28 @@ async function rewriteChainConsistently(seq: number) {
 const IMPLEMENTATIONS: Record<string, () => Promise<Finding>> = {
   async "control-untouched"() {
     const lab = await actors();
-    const { document } = await signedDocument(lab);
-    return expectVerdict(["Signed a fresh document", "Verified it without any change"], await verdict(lab, document.id), "VALID", null);
+    const { document, subject: chosen } = await signedDocument(lab);
+    return expectVerdict(
+      [signedStep(chosen, "a fresh document"), "Verified it without any change"],
+      await verdict(lab, document.id),
+      "VALID",
+      null,
+    );
   },
 
   async "document-substitution"() {
     const lab = await actors();
-    const { document, signature } = await signedDocument(lab, { text: "Pay the supplier 1,000.00" });
-    await fs.writeFile(absolutePath(signature.documentVersion.storagePath), encrypt(Buffer.from("Pay the supplier 9,000.00")));
+    const { document, signature, content, subject: chosen } = await signedDocument(lab, { text: "Pay the supplier 1,000.00" });
+    const replacement = chosen ? altered(content) : Buffer.from("Pay the supplier 9,000.00");
+    await fs.writeFile(absolutePath(signature.documentVersion.storagePath), encrypt(replacement));
     return expectVerdict(
-      ["Signed \"Pay the supplier 1,000.00\"", "Replaced the stored bytes with validly encrypted \"Pay the supplier 9,000.00\"", "Verified"],
+      [
+        signedStep(chosen, '"Pay the supplier 1,000.00"'),
+        chosen
+          ? "Replaced the stored bytes with a different, validly encrypted copy of it"
+          : "Replaced the stored bytes with validly encrypted \"Pay the supplier 9,000.00\"",
+        "Verified",
+      ],
       await verdict(lab, document.id),
       "INVALID",
       "HASH_MISMATCH",
@@ -139,33 +195,39 @@ const IMPLEMENTATIONS: Record<string, () => Promise<Finding>> = {
 
   async "ciphertext-bitflip"() {
     const lab = await actors();
-    const { document, signature } = await signedDocument(lab);
+    const { document, signature, subject: chosen } = await signedDocument(lab);
     const file = absolutePath(signature.documentVersion.storagePath);
     const stored = await fs.readFile(file);
     stored[stored.length - 1] ^= 0x01;
     await fs.writeFile(file, stored);
-    return expectVerdict(["Signed a document", "Flipped the last bit of its ciphertext on disk", "Verified"], await verdict(lab, document.id), "INVALID", "HASH_MISMATCH");
+    return expectVerdict([signedStep(chosen), "Flipped the last bit of its ciphertext on disk", "Verified"], await verdict(lab, document.id), "INVALID", "HASH_MISMATCH");
   },
 
   async "signature-corruption"() {
     const lab = await actors();
-    const { document, signature } = await signedDocument(lab);
+    const { document, signature, subject: chosen } = await signedDocument(lab);
     const corrupted = Buffer.from(signature.signatureBytes);
     corrupted[corrupted.length - 1] ^= 0x01;
     await prisma.signature.update({ where: { id: signature.id }, data: { signatureBytes: new Uint8Array(corrupted) } });
-    return expectVerdict(["Signed a document", "Flipped a bit in the stored signature", "Verified"], await verdict(lab, document.id), "INVALID", "SIGNATURE_INVALID");
+    return expectVerdict([signedStep(chosen), "Flipped a bit in the stored signature", "Verified"], await verdict(lab, document.id), "INVALID", "SIGNATURE_INVALID");
   },
 
   async "signature-replay"() {
     const lab = await actors();
     const first = await signedDocument(lab, { text: "Contract A" });
-    const second = await signedDocument(lab, { text: "Contract B", certificateId: first.certificateId });
+    const second = await signedDocument(lab, { text: "Contract B", certificateId: first.certificateId, variant: true });
     await prisma.signature.update({
       where: { id: second.signature.id },
       data: { signatureBytes: first.signature.signatureBytes, timestampToken: first.signature.timestampToken },
     });
     return expectVerdict(
-      ["Signed \"Contract A\" and \"Contract B\" with the same certificate", "Copied A's signature and time-stamp onto B", "Verified B"],
+      [
+        first.subject
+          ? `Signed ${first.subject.filename} and a modified copy of it with the same certificate`
+          : "Signed \"Contract A\" and \"Contract B\" with the same certificate",
+        "Copied the first document's signature and time-stamp onto the second",
+        "Verified the second",
+      ],
       await verdict(lab, second.document.id),
       "INVALID",
       "SIGNATURE_INVALID",
@@ -174,12 +236,12 @@ const IMPLEMENTATIONS: Record<string, () => Promise<Finding>> = {
 
   async "algorithm-confusion"() {
     const lab = await actors();
-    const { document, signature, certificateId } = await signedDocument(lab);
+    const { document, signature, certificateId, subject: chosen } = await signedDocument(lab);
     const relabelled = otherAlgorithm(CA_ALGORITHM);
     await prisma.certificate.update({ where: { id: certificateId }, data: { algorithm: relabelled } });
     await prisma.signature.update({ where: { id: signature.id }, data: { algorithm: relabelled } });
     return expectVerdict(
-      [`Signed under ${CA_ALGORITHM}`, `Relabelled the signature and certificate records as ${relabelled}`, "Verified"],
+      [signedStep(chosen, `under ${CA_ALGORITHM}`), `Relabelled the signature and certificate records as ${relabelled}`, "Verified"],
       await verdict(lab, document.id),
       "INVALID",
       "ALGORITHM_MISMATCH",
@@ -193,10 +255,10 @@ const IMPLEMENTATIONS: Record<string, () => Promise<Finding>> = {
     // the signature's time-stamp and be refused as not yet valid instead, which is also a correct
     // refusal but not the one this scenario demonstrates.
     const foreign = await issueCertificate({ actor: lab.signer, algorithm: otherAlgorithm(CA_ALGORITHM) });
-    const { document, signature } = await signedDocument(lab);
+    const { document, signature, subject: chosen } = await signedDocument(lab);
     await prisma.signature.update({ where: { id: signature.id }, data: { certificateId: foreign.id } });
     return expectVerdict(
-      ["Signed a document", `Pointed the signature at a ${foreign.algorithm} certificate`, "Verified"],
+      [signedStep(chosen), `Pointed the signature at a ${foreign.algorithm} certificate`, "Verified"],
       await verdict(lab, document.id),
       "INVALID",
       "ALGORITHM_MISMATCH",
@@ -205,10 +267,10 @@ const IMPLEMENTATIONS: Record<string, () => Promise<Finding>> = {
 
   async "compromised-key"() {
     const lab = await actors();
-    const { document, certificateId } = await signedDocument(lab);
+    const { document, certificateId, subject: chosen } = await signedDocument(lab);
     await revokeCertificate({ actor: lab.admin, certificateId, reason: "keyCompromise", comment: "Security Lab" });
     return expectVerdict(
-      ["Signed a document", "Revoked the certificate for keyCompromise with no invalidity date (a new CRL is issued)", "Verified"],
+      [signedStep(chosen), "Revoked the certificate for keyCompromise with no invalidity date (a new CRL is issued)", "Verified"],
       await verdict(lab, document.id),
       "INVALID",
       "CERTIFICATE_REVOKED",

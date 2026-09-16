@@ -137,6 +137,12 @@ export type ScenarioDefinition = {
   attack: string;
   defence: string;
   expected: string;
+  /**
+   * Whether the scenario's subject can be a document chosen in the application rather than
+   * content the sandbox invents. Only scenarios whose subject *is* a document qualify: the
+   * audit and authentication ones attack the log and the login, where a document is irrelevant.
+   */
+  acceptsSubject?: boolean;
 };
 
 export function adversaryFor(id: AdversaryId): Adversary {
@@ -148,6 +154,7 @@ export function adversaryFor(id: AdversaryId): Adversary {
 export const SCENARIOS: readonly ScenarioDefinition[] = [
   {
     id: "control-untouched",
+    acceptsSubject: true,
     adversary: "none",
     property: "none (control)",
     title: "Control: an untouched signed document",
@@ -158,6 +165,7 @@ export const SCENARIOS: readonly ScenarioDefinition[] = [
   },
   {
     id: "document-substitution",
+    acceptsSubject: true,
     adversary: "storage-write",
     property: "document integrity",
     title: "Substitute the stored document",
@@ -168,6 +176,7 @@ export const SCENARIOS: readonly ScenarioDefinition[] = [
   },
   {
     id: "ciphertext-bitflip",
+    acceptsSubject: true,
     adversary: "storage-write",
     property: "document integrity",
     title: "Flip one bit of the encrypted blob",
@@ -178,6 +187,7 @@ export const SCENARIOS: readonly ScenarioDefinition[] = [
   },
   {
     id: "signature-corruption",
+    acceptsSubject: true,
     adversary: "database-write",
     property: "signature authenticity",
     title: "Corrupt the signature value",
@@ -188,6 +198,7 @@ export const SCENARIOS: readonly ScenarioDefinition[] = [
   },
   {
     id: "signature-replay",
+    acceptsSubject: true,
     adversary: "artefact-replay",
     property: "signature authenticity",
     title: "Replay a genuine signature onto another document",
@@ -198,6 +209,7 @@ export const SCENARIOS: readonly ScenarioDefinition[] = [
   },
   {
     id: "algorithm-confusion",
+    acceptsSubject: true,
     adversary: "database-write",
     property: "algorithm binding",
     title: "Relabel the signature algorithm",
@@ -208,6 +220,7 @@ export const SCENARIOS: readonly ScenarioDefinition[] = [
   },
   {
     id: "key-substitution",
+    acceptsSubject: true,
     adversary: "database-write",
     property: "algorithm binding",
     title: "Point the signature at another certificate",
@@ -218,6 +231,7 @@ export const SCENARIOS: readonly ScenarioDefinition[] = [
   },
   {
     id: "compromised-key",
+    acceptsSubject: true,
     adversary: "key-compromise",
     property: "revocation",
     title: "Keep using a signature after key compromise",
