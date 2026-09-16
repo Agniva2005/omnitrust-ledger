@@ -25,7 +25,6 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DemoNotice } from "@/components/demo-notice";
 import { ThemeToggle, applyTheme, readThemePreference } from "@/components/theme-toggle";
 import { SIDEBAR_STORAGE_KEY } from "@/lib/ui/theme-script";
 import { cn } from "@/lib/utils";
@@ -555,9 +554,6 @@ export function AppShell({ user, children }: { user: { email: string; role: stri
         <main id="main" className="mx-auto w-full max-w-content flex-1 animate-fade-in px-4 py-6 sm:px-6 lg:px-8 lg:py-8 2xl:px-10">
           {children}
         </main>
-        <footer className="border-t px-4 py-3 sm:px-6 lg:px-8 2xl:px-10">
-          <DemoNotice className="mx-auto max-w-content" />
-        </footer>
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onShowShortcuts={() => setShortcutsOpen(true)} />

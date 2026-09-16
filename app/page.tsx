@@ -1,6 +1,5 @@
 import { ArrowRight, BadgeCheck, Clock, FileSignature, Layers3, Link2, ScrollText, ShieldCheck, TerminalSquare } from "lucide-react";
 import Link from "next/link";
-import { DemoNotice } from "@/components/demo-notice";
 import { SecurityClassBadge } from "@/components/security-class-badge";
 import { Button } from "@/components/ui/button";
 import { orchestrator } from "@/lib/crypto/orchestrator";
@@ -159,11 +158,6 @@ export default function HomePage() {
         </section>
       </main>
 
-      <footer className="border-t">
-        <div className="mx-auto w-full max-w-content px-4 py-6 sm:px-6 lg:px-8 2xl:px-10">
-          <DemoNotice />
-        </div>
-      </footer>
     </div>
   );
 }

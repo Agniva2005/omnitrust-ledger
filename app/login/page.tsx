@@ -2,7 +2,6 @@ import { Atom, FileCheck2, Fingerprint, ScrollText, ShieldCheck } from "lucide-r
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/app/login/login-form";
-import { DemoNotice } from "@/components/demo-notice";
 import { getSession } from "@/lib/auth/session";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 
@@ -54,7 +53,6 @@ export default async function LoginPage() {
             </ul>
           </div>
 
-          <DemoNotice className="max-w-lg" />
         </div>
       </section>
 
@@ -73,7 +71,6 @@ export default async function LoginPage() {
           <div className="mt-8">
             <LoginForm />
           </div>
-          <DemoNotice className="mt-10 lg:hidden" />
         </div>
       </section>
     </div>
