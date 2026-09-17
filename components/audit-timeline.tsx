@@ -7,7 +7,10 @@ type Entry = {
   action: string;
   targetType: string;
   metadataJson: string;
+  prevHash: string;
   entryHash: string;
+  /** This row's own fields hashed against its stored prevHash: what the integrity walk checks. */
+  recomputedHash: string;
   createdAt: Date;
   actor: { email: string } | null;
 };
@@ -48,6 +51,15 @@ export function AuditTimeline({ entries }: { entries: Entry[] }) {
     return <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">No audit entries yet.</p>;
   }
 
+  // Each entry stores the hash of the one before it. Where both are on screen the two can be
+  // compared directly, which is the chain itself rather than a claim about it.
+  const bySeq = new Map(entries.map((entry) => [entry.seq, entry]));
+  const linkOf = (entry: Entry) => {
+    const previous = bySeq.get(entry.seq - 1);
+    if (!previous) return null;
+    return { previous, matches: previous.entryHash === entry.prevHash };
+  };
+
   const days = new Map<string, Entry[]>();
   for (const entry of entries) {
     const day = entry.createdAt.toISOString().slice(0, 10);
@@ -84,6 +96,21 @@ export function AuditTimeline({ entries }: { entries: Entry[] }) {
                       </span>
                     ))}
                   </div>
+                  {(() => {
+                    const link = linkOf(entry);
+                    if (!link) return null;
+                    return (
+                      <p className={cn("mt-1 font-mono text-[10px]", link.matches ? "text-muted-foreground" : "font-semibold text-destructive")}>
+                        prev {link.matches ? "=" : "≠"} #{link.previous.seq} {entry.prevHash.slice(0, 16)}…
+                        {!link.matches && <span> — this entry does not follow #{link.previous.seq}</span>}
+                      </p>
+                    );
+                  })()}
+                  {entry.recomputedHash !== entry.entryHash && (
+                    <p className="mt-1 font-mono text-[10px] font-semibold text-destructive">
+                      contents hash to {entry.recomputedHash.slice(0, 16)}… but the row stores {entry.entryHash.slice(0, 16)}… — this entry was altered
+                    </p>
+                  )}
                   <details className="mt-1 text-[11px] text-muted-foreground">
                     <summary className="w-fit cursor-pointer select-none hover:text-foreground">Full metadata</summary>
                     <pre className="mt-1 overflow-x-auto rounded-md border bg-muted/40 p-2 font-mono [overflow-wrap:anywhere] whitespace-pre-wrap">

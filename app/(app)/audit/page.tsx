@@ -7,7 +7,7 @@ import { AuditTimeline } from "@/components/audit-timeline";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { auditTamperState } from "@/lib/audit/demo-tamper";
-import { auditEntryCount, listAuditEntries } from "@/lib/audit/log";
+import { auditEntryCount, computeEntryHash, listAuditEntries } from "@/lib/audit/log";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
 import { listAuditCheckpoints } from "@/lib/pki/audit-checkpoints";
@@ -18,7 +18,10 @@ export default async function AuditPage() {
   const actor = await getSession();
   if (!actor) redirect("/login");
 
-  const entries = await listAuditEntries(200);
+  const stored = await listAuditEntries(200);
+  // Recomputed per row from its own fields, which is the check that catches an edited entry
+  // even when the stored links still line up.
+  const entries = stored.map((entry) => ({ ...entry, recomputedHash: computeEntryHash(entry.prevHash, entry) }));
   const total = await auditEntryCount();
   const checkpoints = await listAuditCheckpoints(10);
   const tamper = can(actor.role, "demo:tamper") ? await auditTamperState() : null;

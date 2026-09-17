@@ -29,7 +29,7 @@ export const SMOKE_OUTPUT = path.join(CI_DIRECTORY, "benchmarks-smoke.json");
  */
 export const TEST_SUITES: Record<"unit" | "integration" | "security", string[]> = {
   unit: ["tests/scaffold.test.ts", "tests/crypto", "tests/benchmarks", "tests/ci"],
-  integration: ["tests/documents", "tests/pki", "tests/audit", "tests/anchoring", "tests/prisma", "tests/dashboard", "tests/verification", "tests/db"],
+  integration: ["tests/documents", "tests/pki", "tests/audit", "tests/anchoring", "tests/prisma", "tests/dashboard", "tests/verification", "tests/db", "tests/evidence"],
   security: ["tests/auth", "tests/http", "tests/api", "tests/security-lab"],
 };
 
