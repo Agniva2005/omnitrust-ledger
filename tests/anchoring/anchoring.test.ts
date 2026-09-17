@@ -263,3 +263,47 @@ describe("anchoring", () => {
     });
   });
 });
+
+describe("a chain that restarted", () => {
+  it("does not make anchored commitments pending again while no chain is reachable", async () => {
+    // With nothing answering there is no chain identity to compare against, so re-anchoring
+    // work must not appear out of nowhere: an anchor made anywhere still counts.
+    const anchoredSomewhere = await prisma.anchorLeaf.count();
+    expect(anchoredSomewhere).toBeGreaterThan(0);
+
+    await withChainUrl("http://127.0.0.1:9", async () => {
+      const pending = await pendingCommitments();
+      const leaves = await prisma.anchorLeaf.findMany({ select: { kind: true, targetId: true } });
+      const anchored = new Set(leaves.map((leaf) => `${leaf.kind}:${leaf.targetId}`));
+      for (const item of pending) expect(anchored.has(`${item.kind}:${item.targetId}`)).toBe(false);
+    });
+  }, 30_000);
+
+  it("allows the same commitment in a second batch, which the old unique constraint forbade", async () => {
+    const existing = await prisma.anchorLeaf.findFirstOrThrow({ include: { batch: true } });
+
+    // A second batch on the same contract stands in for one made after a chain restart.
+    const second = await prisma.anchorBatch.create({
+      data: {
+        contractId: existing.batch.contractId,
+        root: `re-anchor-${Math.random().toString(16).slice(2)}`,
+        leafCount: 1,
+        txHash: `0xre${Math.random().toString(16).slice(2)}`,
+        blockNumber: existing.batch.blockNumber + 1,
+        blockTimestamp: new Date(existing.batch.blockTimestamp.getTime() + 1000),
+      },
+    });
+    const reAnchored = await prisma.anchorLeaf.create({
+      data: { batchId: second.id, index: 0, kind: existing.kind, targetId: existing.targetId, commitment: existing.commitment },
+    });
+
+    expect(await prisma.anchorLeaf.count({ where: { kind: existing.kind, targetId: existing.targetId } })).toBe(2);
+
+    // The newest batch is the one that matters; the older anchor must not shadow it.
+    const verification = await verifyAnchor(existing.kind as "SIGNATURE" | "AUDIT_CHECKPOINT", existing.targetId);
+    expect(verification.batch?.id).toBe(second.id);
+
+    await prisma.anchorLeaf.delete({ where: { id: reAnchored.id } });
+    await prisma.anchorBatch.delete({ where: { id: second.id } });
+  }, 30_000);
+});

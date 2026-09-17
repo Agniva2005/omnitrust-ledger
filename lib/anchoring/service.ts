@@ -71,12 +71,29 @@ export async function commitmentFor(kind: AnchorKind, targetId: string): Promise
 
 export type PendingCommitment = { kind: AnchorKind; targetId: string; commitment: string };
 
-/** Signatures and audit checkpoints not yet in any anchored batch, oldest first. */
+/**
+ * Signatures and audit checkpoints not yet anchored on the chain currently answering, oldest
+ * first. A development chain that restarts is a different chain: anchors made on the previous
+ * one still exist as records but no longer prove anything, so their commitments become pending
+ * again. When no chain is reachable there is nothing to compare against, so a commitment
+ * anchored anywhere counts as anchored rather than reappearing as work to redo.
+ */
 export async function pendingCommitments(): Promise<PendingCommitment[]> {
+  let current: { chainId: number; genesisHash: string } | null = null;
+  try {
+    const info = await chainInfo();
+    current = { chainId: info.chainId, genesisHash: info.genesisHash };
+  } catch (error) {
+    if (!(error instanceof ChainUnavailableError)) throw error;
+  }
+
+  const leaves = await prisma.anchorLeaf.findMany({
+    select: { kind: true, targetId: true, batch: { select: { contract: { select: { chainId: true, genesisHash: true } } } } },
+  });
   const anchored = new Set(
-    (await prisma.anchorLeaf.findMany({ select: { kind: true, targetId: true } })).map(
-      (leaf) => `${leaf.kind}:${leaf.targetId}`,
-    ),
+    leaves
+      .filter((leaf) => current === null || (leaf.batch.contract.chainId === current.chainId && leaf.batch.contract.genesisHash === current.genesisHash))
+      .map((leaf) => `${leaf.kind}:${leaf.targetId}`),
   );
   const signatures = await prisma.signature.findMany({ orderBy: { signedAt: "asc" }, select: { id: true } });
   const checkpoints = await prisma.auditCheckpoint.findMany({ orderBy: { seq: "asc" }, select: { id: true } });
@@ -247,9 +264,12 @@ export async function verifyAnchor(kind: AnchorKind, targetId: string): Promise<
     checks,
   });
 
-  const leaf = await prisma.anchorLeaf.findUnique({
-    where: { kind_targetId: { kind, targetId } },
+  // A target can now sit in more than one batch, so prefer the most recent: an older anchor on a
+  // chain that has since restarted would report NOT_ANCHORED and hide a good one made after it.
+  const leaf = await prisma.anchorLeaf.findFirst({
+    where: { kind, targetId },
     include: { batch: { include: { contract: true, leaves: { orderBy: { index: "asc" } } } } },
+    orderBy: { batch: { createdAt: "desc" } },
   });
   if (!leaf) {
     return conclude("NOT_ANCHORED", "This item has not been included in an anchored batch yet.");

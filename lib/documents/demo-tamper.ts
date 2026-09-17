@@ -329,10 +329,18 @@ export async function tamperKeySubstitution(actor: Actor, documentId: string): P
   const signature = version.signatures[0];
   if (!signature) throw new ConflictError("This version has no signature to re-point");
 
-  const substitute = await prisma.certificate.findFirst({
-    where: { id: { not: signature.certificateId }, status: "ACTIVE" },
-    orderBy: { issuedAt: "desc" },
-  });
+  // Prefer a certificate that was already valid when this signature was made. One issued
+  // afterwards is refused as not yet valid — a correct answer, but about the validity period
+  // rather than about the key, which is what this attack is meant to show.
+  const substitute =
+    (await prisma.certificate.findFirst({
+      where: { id: { not: signature.certificateId }, status: "ACTIVE", issuedAt: { lte: signature.signedAt } },
+      orderBy: { issuedAt: "desc" },
+    })) ??
+    (await prisma.certificate.findFirst({
+      where: { id: { not: signature.certificateId }, status: "ACTIVE" },
+      orderBy: { issuedAt: "asc" },
+    }));
   if (!substitute) throw new ConflictError("Key substitution needs a second active certificate; issue one first");
 
   await keepSignatureSnapshot(documentId, version.versionNumber, signature, `the signature pointed at certificate ${substitute.serialNumber.slice(0, 12)}…`);

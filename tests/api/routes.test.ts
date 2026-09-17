@@ -37,6 +37,7 @@ const auditCheckpoints = await import("@/app/api/audit/checkpoints/route");
 const anchoring = await import("@/app/api/anchoring/route");
 const anchorBatches = await import("@/app/api/anchoring/batches/route");
 const anchorVerify = await import("@/app/api/anchoring/verify/route");
+const anchorNode = await import("@/app/api/anchoring/node/route");
 const securityLab = await import("@/app/api/security-lab/route");
 
 const BASE = "http://localhost";
@@ -250,6 +251,22 @@ describe("signing and verification", () => {
     // The pack must never carry key material.
     expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
   }, 60_000);
+
+  it("POST /api/anchoring/node: 403 below ADMIN and 400 for an unknown action; GET reports status", async () => {
+    const url = "/api/anchoring/node";
+
+    // Deliberately no start/stop here: those spawn a chain process, which a test must not do.
+    await as("signer@demo");
+    expect((await read(await anchorNode.POST(json(url, "POST", { action: "start" })))).status).toBe(403);
+
+    await as("admin@demo");
+    expect((await read(await anchorNode.POST(json(url, "POST", { action: "nonsense" })))).status).toBe(400);
+
+    const status = await read(await anchorNode.GET());
+    expect(status.status).toBe(200);
+    expect(status.body.node).toMatchObject({ rpcUrl: expect.stringMatching(/^https?:\/\//) });
+    expect(typeof status.body.node.reachable).toBe("boolean");
+  }, 30_000);
 
   it("POST /api/audit/demo-tamper: 403 below ADMIN, 400 without a sequence, and reports state", async () => {
     const url = "/api/audit/demo-tamper";

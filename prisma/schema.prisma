@@ -130,7 +130,10 @@ model AnchorLeaf {
   commitment String
 
   @@unique([batchId, index])
-  @@unique([kind, targetId])
+  // A commitment may appear in more than one batch: a development chain that restarts leaves its
+  // anchors behind, and the same signature then has to be anchored again on the new chain.
+  @@unique([batchId, kind, targetId])
+  @@index([kind, targetId])
 }
 
 /// Singleton, seeded once. `algorithm` is not in the spec's field list but is required:

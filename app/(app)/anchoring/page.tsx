@@ -2,11 +2,13 @@ import { Link2 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AnchorButton } from "@/app/(app)/anchoring/anchor-button";
+import { ChainControl } from "@/app/(app)/anchoring/chain-control";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { anchoringOverview } from "@/lib/anchoring/service";
+import { nodeStatus } from "@/lib/anchoring/local-node";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
 
@@ -17,6 +19,8 @@ export default async function AnchoringPage() {
   if (!actor) redirect("/login");
 
   const overview = await anchoringOverview(actor);
+  // Only the role that can anchor is offered the control that starts the chain.
+  const node = can(actor.role, "anchor:create") ? await nodeStatus() : null;
   const { chain } = overview;
 
   return (
@@ -53,6 +57,11 @@ export default async function AnchoringPage() {
                 <Badge variant="warning">UNAVAILABLE</Badge>
                 <p className="text-muted-foreground">{chain.reason}</p>
               </>
+            )}
+            {node && (
+              <div className="border-t pt-3">
+                <ChainControl initial={node} />
+              </div>
             )}
           </CardContent>
         </Card>

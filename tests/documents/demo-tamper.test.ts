@@ -29,6 +29,7 @@ const REPLACEMENT = Buffer.from("Amount payable: 9,000\n");
 let admin: Actor;
 let signer: Actor;
 let certificate: Awaited<ReturnType<typeof issueCertificate>>;
+let substitute: Awaited<ReturnType<typeof issueCertificate>>;
 let counter = 0;
 
 beforeAll(async () => {
@@ -43,6 +44,9 @@ beforeAll(async () => {
   signer = { userId: id("signer@demo"), email: "signer@demo", role: "SIGNER" };
 
   certificate = await issueCertificate({ actor: admin, algorithm: ALGORITHMS[0] as Algorithm });
+  // Issued before anything is signed, so substituting it is a question about the key rather
+  // than about a validity period that had not started yet.
+  substitute = await issueCertificate({ actor: admin, algorithm: (ALGORITHMS[1] ?? ALGORITHMS[0]) as Algorithm });
 }, 120_000);
 
 /** A freshly uploaded and signed document, so each test starts from an untampered one. */
@@ -185,15 +189,16 @@ describe("demonstration tampering", () => {
     expect((await verifyDocument(admin, document.id)).outcome).toBe("VALID");
   }, 60_000);
 
-  it("attributing the signature to another certificate is caught", async () => {
+  it("attributing the signature to another certificate is caught for the key, not the dates", async () => {
     const document = await signedDocument();
-    // A second certificate to point at; the fixture otherwise signs everything with one.
-    const other = ALGORITHMS.find((candidate) => candidate !== certificate.algorithm) ?? ALGORITHMS[0];
-    await issueCertificate({ actor: admin, algorithm: other as Algorithm });
 
-    await tamperKeySubstitution(admin, document.id);
+    const state = await tamperKeySubstitution(admin, document.id);
+    expect(state.alteration).toContain(substitute.serialNumber.slice(0, 12));
+
     const verdict = await verifyDocument(admin, document.id);
     expect(verdict.outcome).toBe("INVALID");
+    // A certificate issued after signing would be refused as not yet valid, which is correct
+    // but says nothing about the key; the substitute is chosen to predate the signature.
     expect(["SIGNATURE_INVALID", "ALGORITHM_MISMATCH"]).toContain(verdict.reason);
 
     await restoreTamper(admin, document.id);
