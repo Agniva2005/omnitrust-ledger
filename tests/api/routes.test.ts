@@ -28,6 +28,7 @@ const versions = await import("@/app/api/documents/[id]/versions/route");
 const sign = await import("@/app/api/documents/[id]/sign/route");
 const verify = await import("@/app/api/documents/[id]/verify/route");
 const demoTamper = await import("@/app/api/documents/[id]/demo-tamper/route");
+const evidence = await import("@/app/api/documents/[id]/evidence/route");
 const certificates = await import("@/app/api/certificates/route");
 const revoke = await import("@/app/api/certificates/[id]/revoke/route");
 const auditVerify = await import("@/app/api/audit/verify/route");
@@ -220,6 +221,35 @@ describe("signing and verification", () => {
     expect(verified.body.result.steps.length).toBeGreaterThanOrEqual(10);
     expect(verified.body.result.trust.trustedTime).not.toBeNull();
   }, 30_000);
+
+  it("GET /api/documents/:id/evidence: 404 unsigned, 403 for a viewer, and a readable archive once signed", async () => {
+    const unsigned = await uploadAsSigner();
+    await as("signer@demo");
+    expect((await read(await evidence.GET(new Request(`${BASE}/api/documents/${unsigned.id}/evidence`), params(unsigned.id)))).status).toBe(404);
+
+    const created = await uploadAsSigner();
+    const certificate = await issueAs("signer@demo");
+    await as("signer@demo");
+    await sign.POST(json(`/api/documents/${created.id}/sign`, "POST", { certificateId: certificate.id }), params(created.id));
+
+    await as("viewer@demo");
+    expect((await read(await evidence.GET(new Request(`${BASE}/api/documents/${created.id}/evidence`), params(created.id)))).status).toBe(403);
+
+    await as("signer@demo");
+    const response = await evidence.GET(new Request(`${BASE}/api/documents/${created.id}/evidence`), params(created.id));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("content-disposition")).toMatch(/evidence\.zip/);
+
+    const archive = Buffer.from(await response.arrayBuffer());
+    // "PK" and an end-of-central-directory record: a reader can open it.
+    expect(archive.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    expect(archive.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))).toBeGreaterThan(0);
+    expect(archive.includes(Buffer.from("README.txt"))).toBe(true);
+    expect(archive.includes(Buffer.from("verification.json"))).toBe(true);
+    // The pack must never carry key material.
+    expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
+  }, 60_000);
 
   it("POST /api/audit/demo-tamper: 403 below ADMIN, 400 without a sequence, and reports state", async () => {
     const url = "/api/audit/demo-tamper";

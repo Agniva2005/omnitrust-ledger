@@ -1,4 +1,4 @@
-import { Download, FileCheck2, FilePlus2, FileText, Fingerprint, FlaskConical, GitBranch, Hash, TerminalSquare } from "lucide-react";
+import { Download, FileCheck2, FilePlus2, FileText, Fingerprint, FlaskConical, GitBranch, Hash, Package, TerminalSquare } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { HistoryTimeline } from "@/app/(app)/documents/[id]/history-timeline";
@@ -296,6 +296,9 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                         </a>
                         <a className={exportLink} href={`/api/documents/${document.id}/export?part=certificate&version=${version}`}>
                           <Download aria-hidden /> Certificate
+                        </a>
+                        <a className={cn(buttonVariants({ variant: "default", size: "sm" }), "h-7 px-2 text-xs")} href={`/api/documents/${document.id}/evidence?version=${version}`}>
+                          <Package aria-hidden /> Evidence pack
                         </a>
                       </div>
                     </TableCell>
