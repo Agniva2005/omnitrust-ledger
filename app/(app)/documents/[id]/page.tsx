@@ -23,6 +23,7 @@ import { NotFoundError } from "@/lib/api";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
 import { orchestrator } from "@/lib/crypto/orchestrator";
+import { documentArtifacts } from "@/lib/documents/artifacts";
 import { tamperState } from "@/lib/documents/demo-tamper";
 import { documentHistory } from "@/lib/documents/history";
 import { assertDocumentState, nextStates } from "@/lib/documents/lifecycle";
@@ -85,6 +86,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const tamper = can(actor.role, "demo:tamper") ? await tamperState(document.id) : null;
 
   const history = await documentHistory(document.id);
+  const artifacts = await documentArtifacts(document.id);
 
   const all = orchestrator.describeAll();
   const listFormat = (items: string[], type: "conjunction" | "disjunction") => new Intl.ListFormat("en", { style: "long", type }).format(items);
@@ -303,6 +305,75 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             </TableBody>
           </Table>
         )}
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>The bytes themselves</CardTitle>
+          <CardDescription>
+            A signature is a column in the database and a stored document is an encrypted file, so neither is visible
+            anywhere else. Both are shown here as they are stored — which is also how you watch them change when something
+            is altered.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {artifacts.signatures.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Signature bytes</h3>
+              {artifacts.signatures.map((signature) => (
+                <div key={`${signature.versionNumber}-${signature.algorithm}`} className="rounded-lg border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-mono">v{signature.versionNumber}</span>
+                    <span>{orchestrator.displayName(signature.algorithm)}</span>
+                    <span className="tabular-nums">{signature.byteLength} bytes</span>
+                    {signature.timestampedAt && <span>· time-stamped {signature.timestampedAt.replace("T", " ").slice(0, 19)}</span>}
+                    {signature.timestampTokenBytes !== null && <span>· token {signature.timestampTokenBytes} B</span>}
+                    {signature.cmsBytes !== null && <span>· CMS {signature.cmsBytes} B</span>}
+                  </div>
+                  <p className="mt-2 break-all font-mono text-[11px] leading-relaxed">{signature.hex}</p>
+                  <CopyButton value={signature.hex} label="Copy signature hex" className="mt-2" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium">Stored file, as written to disk</h3>
+            {artifacts.blobs.map((blob) => (
+              <div key={blob.versionNumber} className="rounded-lg border bg-muted/20 p-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span className="font-mono">v{blob.versionNumber}</span>
+                  <span className="font-mono [overflow-wrap:anywhere]">{blob.storagePath}</span>
+                  {blob.unreadable === null && <span className="tabular-nums">{blob.fileBytes.toLocaleString()} bytes</span>}
+                </div>
+                {blob.unreadable ? (
+                  <p className="mt-2 text-xs text-destructive">{blob.unreadable}</p>
+                ) : (
+                  <dl className="mt-2 space-y-1.5 font-mono text-[11px]">
+                    <div className="flex flex-wrap gap-2">
+                      <dt className="w-24 shrink-0 text-muted-foreground">IV (12 B)</dt>
+                      <dd className="break-all">{blob.iv}</dd>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <dt className="w-24 shrink-0 text-muted-foreground">GCM tag (16 B)</dt>
+                      <dd className="break-all">{blob.tag}</dd>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <dt className="w-24 shrink-0 text-muted-foreground">ciphertext</dt>
+                      <dd className="break-all">
+                        {blob.ciphertextHead}… <span className="text-muted-foreground">({blob.ciphertextBytes.toLocaleString()} bytes)</span>
+                      </dd>
+                    </div>
+                  </dl>
+                )}
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              The tag authenticates the ciphertext: change any byte of the file and decryption refuses it rather than
+              returning different plaintext.
+            </p>
+          </div>
+        </CardContent>
       </Card>
 
       <Card>
