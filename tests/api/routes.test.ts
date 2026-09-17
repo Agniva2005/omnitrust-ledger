@@ -31,6 +31,7 @@ const demoTamper = await import("@/app/api/documents/[id]/demo-tamper/route");
 const evidence = await import("@/app/api/documents/[id]/evidence/route");
 const certificates = await import("@/app/api/certificates/route");
 const revoke = await import("@/app/api/certificates/[id]/revoke/route");
+const certificateEvidence = await import("@/app/api/certificates/[id]/evidence/route");
 const auditVerify = await import("@/app/api/audit/verify/route");
 const auditTamper = await import("@/app/api/audit/demo-tamper/route");
 const auditExport = await import("@/app/api/audit/export/route");
@@ -250,6 +251,25 @@ describe("signing and verification", () => {
     expect(archive.includes(Buffer.from("README.txt"))).toBe(true);
     expect(archive.includes(Buffer.from("verification.json"))).toBe(true);
     // The pack must never carry key material.
+    expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
+  }, 60_000);
+
+  it("GET /api/certificates/:id/evidence: 404 unknown, and an archive any role may read", async () => {
+    const certificate = await issueAs("signer@demo");
+
+    await as("viewer@demo");
+    expect((await read(await certificateEvidence.GET(new Request(`${BASE}/x`), params("nope")))).status).toBe(404);
+
+    // Every role can read certificates, so every role can take the evidence away.
+    const response = await certificateEvidence.GET(new Request(`${BASE}/x`), params(certificate.id));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+
+    const archive = Buffer.from(await response.arrayBuffer());
+    expect(archive.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    for (const name of ["certificate.pem", "ca.pem", "crl.pem", "explorer.json", "README.txt"]) {
+      expect(archive.includes(Buffer.from(name)), name).toBe(true);
+    }
     expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
   }, 60_000);
 

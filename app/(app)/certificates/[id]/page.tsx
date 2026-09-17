@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleCheck, CircleHelp, CircleX, History, KeyRound, Link2, ShieldCheck, ShieldX } from "lucide-react";
+import { ArrowLeft, CircleCheck, CircleHelp, CircleX, History, KeyRound, Link2, Package, ShieldCheck, ShieldX } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { CopyButton } from "@/components/copy-button";
@@ -7,6 +7,7 @@ import { SecurityClassBadge } from "@/components/security-class-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { NotFoundError } from "@/lib/api";
 import { getSession } from "@/lib/auth/session";
@@ -51,11 +52,16 @@ export default async function CertificateExplorerPage({ params }: { params: Prom
         title={certificate.subjectUser}
         description={<span className="font-mono text-xs [overflow-wrap:anywhere]">serial {certificate.serialNumber}</span>}
         actions={
-          <Button asChild variant="outline" size="sm">
-            <Link href="/certificates">
-              <ArrowLeft aria-hidden /> Certificates
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <a className={cn(buttonVariants({ variant: "default", size: "sm" }))} href={`/api/certificates/${certificate.id}/evidence`}>
+              <Package aria-hidden /> Evidence pack
+            </a>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/certificates">
+                <ArrowLeft aria-hidden /> Certificates
+              </Link>
+            </Button>
+          </div>
         }
       />
 

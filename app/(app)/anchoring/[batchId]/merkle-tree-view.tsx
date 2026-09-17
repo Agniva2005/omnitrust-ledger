@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import type { MerkleNode } from "@/lib/crypto/merkle";
 import { cn } from "@/lib/utils";
@@ -41,6 +44,7 @@ function Node({
   depth: number;
   onPath: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const isOnPath = selected !== null && covers(node, selected);
   // A sibling of the path is exactly what the inclusion proof hands the verifier.
   const isProofSibling = !isOnPath && onPath;
@@ -67,10 +71,38 @@ function Node({
 
   return (
     <li className="relative">
-      <div className={cn("inline-flex items-center gap-2 rounded-lg border px-3 py-1.5", isOnPath ? "border-primary/50 bg-primary/[0.06]" : isProofSibling ? "border-warning/50 bg-warning/[0.06]" : "bg-muted/30")}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-left transition-colors hover:bg-accent",
+          isOnPath ? "border-primary/50 bg-primary/[0.06]" : isProofSibling ? "border-warning/50 bg-warning/[0.06]" : "bg-muted/30",
+        )}
+      >
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{depth === 0 ? "root" : "node"}</span>
         <Hash value={node.hash} tone={isOnPath ? "path" : isProofSibling ? "sibling" : "plain"} />
-      </div>
+        <span aria-hidden className="text-[10px] text-muted-foreground">{open ? "hide" : "show how"}</span>
+      </button>
+      {open && (
+        // The node's own definition, with the two hashes it was computed from. Nothing is
+        // recomputed in the browser: these are the values the server built the tree with.
+        <div className="mt-1.5 max-w-xl rounded-lg border bg-card p-2.5 font-mono text-[10px] leading-relaxed">
+          <div className="text-muted-foreground">SHA-256( 0x01 ‖ left ‖ right )</div>
+          <div className="mt-1 [overflow-wrap:anywhere]">
+            <span className="text-muted-foreground">left&nbsp;&nbsp;</span>
+            {node.left.hash}
+          </div>
+          <div className="[overflow-wrap:anywhere]">
+            <span className="text-muted-foreground">right&nbsp;</span>
+            {node.right.hash}
+          </div>
+          <div className="mt-1 [overflow-wrap:anywhere]">
+            <span className="text-muted-foreground">=&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+            {node.hash}
+          </div>
+        </div>
+      )}
       <ul className="mt-2 space-y-2 border-l pl-4">
         <Node node={node.left} selected={selected} labels={labels} batchId={batchId} depth={depth + 1} onPath={isOnPath} />
         <Node node={node.right} selected={selected} labels={labels} batchId={batchId} depth={depth + 1} onPath={isOnPath} />
