@@ -37,6 +37,8 @@ export const AUDIT_ACTIONS = [
   "DEMO_CIPHERTEXT_TAMPERED",
   "DEMO_SIGNATURE_TAMPERED",
   "DEMO_TAMPER_RESTORED",
+  "DEMO_AUDIT_TAMPERED",
+  "DEMO_AUDIT_RESTORED",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

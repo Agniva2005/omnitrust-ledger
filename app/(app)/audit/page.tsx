@@ -1,10 +1,12 @@
 import { ScrollText } from "lucide-react";
 import { redirect } from "next/navigation";
+import { AuditTamperPanel } from "@/app/(app)/audit/audit-tamper-panel";
 import { IntegrityChecker } from "@/app/(app)/audit/integrity-checker";
 import { PageHeader } from "@/components/page-header";
 import { AuditTimeline } from "@/components/audit-timeline";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { auditTamperState } from "@/lib/audit/demo-tamper";
 import { auditEntryCount, listAuditEntries } from "@/lib/audit/log";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
@@ -19,6 +21,8 @@ export default async function AuditPage() {
   const entries = await listAuditEntries(200);
   const total = await auditEntryCount();
   const checkpoints = await listAuditCheckpoints(10);
+  const tamper = can(actor.role, "demo:tamper") ? await auditTamperState() : null;
+  const maxSeq = entries[0]?.seq ?? 0;
 
   return (
     <div className="space-y-6">
@@ -49,6 +53,8 @@ export default async function AuditPage() {
           </CardHeader>
         </Card>
       )}
+
+      {tamper && maxSeq > 0 && <AuditTamperPanel initialState={tamper} maxSeq={maxSeq} />}
 
       <Card>
         <CardHeader>

@@ -31,6 +31,7 @@ const demoTamper = await import("@/app/api/documents/[id]/demo-tamper/route");
 const certificates = await import("@/app/api/certificates/route");
 const revoke = await import("@/app/api/certificates/[id]/revoke/route");
 const auditVerify = await import("@/app/api/audit/verify/route");
+const auditTamper = await import("@/app/api/audit/demo-tamper/route");
 const auditCheckpoints = await import("@/app/api/audit/checkpoints/route");
 const anchoring = await import("@/app/api/anchoring/route");
 const anchorBatches = await import("@/app/api/anchoring/batches/route");
@@ -219,6 +220,23 @@ describe("signing and verification", () => {
     expect(verified.body.result.steps.length).toBeGreaterThanOrEqual(10);
     expect(verified.body.result.trust.trustedTime).not.toBeNull();
   }, 30_000);
+
+  it("POST /api/audit/demo-tamper: 403 below ADMIN, 400 without a sequence, and reports state", async () => {
+    const url = "/api/audit/demo-tamper";
+
+    await as("signer@demo");
+    expect((await read(await auditTamper.POST(json(url, "POST", { action: "edit", seq: 1 })))).status).toBe(403);
+
+    await as("admin@demo");
+    expect((await read(await auditTamper.POST(json(url, "POST", { action: "edit" })))).status).toBe(400);
+    expect((await read(await auditTamper.POST(json(url, "POST", { action: "nonsense", seq: 1 })))).status).toBe(400);
+    // Restoring a log nobody altered is a conflict, not a silent success.
+    expect((await read(await auditTamper.POST(json(url, "POST", { action: "restore" })))).status).toBe(409);
+
+    const state = await read(await auditTamper.GET());
+    expect(state.status).toBe(200);
+    expect(state.body.state.altered).toBe(false);
+  });
 
   it("POST /api/documents/:id/demo-tamper: 403 below ADMIN, 400 for an unknown action, then alters and restores", async () => {
     const created = await uploadAsSigner();

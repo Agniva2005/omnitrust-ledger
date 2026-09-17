@@ -1,6 +1,7 @@
 import { Download, FileCheck2, FilePlus2, FileText, Fingerprint, FlaskConical, GitBranch, Hash, TerminalSquare } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { HistoryTimeline } from "@/app/(app)/documents/[id]/history-timeline";
 import { NewVersionPanel } from "@/app/(app)/documents/[id]/new-version-panel";
 import { SignPanel, type CertificateOption } from "@/app/(app)/documents/[id]/sign-panel";
 import { TamperPanel } from "@/app/(app)/documents/[id]/tamper-panel";
@@ -23,6 +24,7 @@ import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 import { tamperState } from "@/lib/documents/demo-tamper";
+import { documentHistory } from "@/lib/documents/history";
 import { assertDocumentState, nextStates } from "@/lib/documents/lifecycle";
 import { getDocument } from "@/lib/documents/service";
 import { signaturesForDocument } from "@/lib/documents/signing";
@@ -81,6 +83,8 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
 
   // Reads and hashes the stored blob, so it is computed only for the role that can act on it.
   const tamper = can(actor.role, "demo:tamper") ? await tamperState(document.id) : null;
+
+  const history = await documentHistory(document.id);
 
   const all = orchestrator.describeAll();
   const listFormat = (items: string[], type: "conjunction" | "disjunction") => new Intl.ListFormat("en", { style: "long", type }).format(items);
@@ -299,6 +303,19 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             </TableBody>
           </Table>
         )}
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>History</CardTitle>
+          <CardDescription>
+            Every line is an entry in the hash-chained audit log, shown with the sequence number and hash it has there. Verify
+            the log on the Audit log page and these are the records it walks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <HistoryTimeline events={history} />
+        </CardContent>
       </Card>
 
       <Card className="overflow-hidden">
