@@ -11,12 +11,23 @@ export type TamperState = {
   signatureAltered: boolean;
   canRestoreContent: boolean;
   canRestoreSignature: boolean;
+  alteration: string | null;
   signedHash: string;
   storedHash: string | null;
   storedHashError: string | null;
 };
 
-type Action = "content" | "ciphertext" | "signature" | "restore";
+type Action = "content" | "ciphertext" | "signature" | "replay" | "algorithm" | "key-substitution" | "timestamp-swap" | "restore";
+
+/** Each attack, what it changes, and the verdict it should produce. */
+const ATTACKS: { action: Action; label: string; blurb: string; expect: string }[] = [
+  { action: "ciphertext", label: "Flip a ciphertext bit", blurb: "Flips one bit of the encrypted blob on disk. The attacker has the file but not the storage key.", expect: "the GCM tag refuses it" },
+  { action: "signature", label: "Flip a signature bit", blurb: "Changes one bit of the stored signature, keeping its length valid for the algorithm.", expect: "SIGNATURE_INVALID" },
+  { action: "replay", label: "Replay another signature", blurb: "Copies a genuine signature, and its time-stamp, from another document signed by this same certificate.", expect: "SIGNATURE_INVALID" },
+  { action: "algorithm", label: "Relabel the algorithm", blurb: "Marks the signature and its certificate as a different algorithm without re-signing anything.", expect: "ALGORITHM_MISMATCH" },
+  { action: "key-substitution", label: "Point at another certificate", blurb: "Leaves the signature bytes alone and attributes them to a different certificate.", expect: "ALGORITHM_MISMATCH or SIGNATURE_INVALID" },
+  { action: "timestamp-swap", label: "Swap the time-stamp", blurb: "Replaces the RFC 3161 token with one issued over a different signature value.", expect: "the time-stamp step fails" },
+];
 
 export function TamperPanel({
   documentId,
@@ -90,7 +101,7 @@ export function TamperPanel({
           </div>
         </dl>
         {state.signatureAltered && (
-          <p className="mt-2 text-xs text-destructive">The stored signature bytes have been altered.</p>
+          <p className="mt-2 text-xs text-destructive">The signature record has been altered: {state.alteration ?? "changed"}.</p>
         )}
       </div>
 
@@ -118,31 +129,34 @@ export function TamperPanel({
           </Button>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" size="sm" disabled={pending !== null} onClick={() => run("ciphertext")}>
-            {pending === "ciphertext" ? <Loader2 aria-hidden className="animate-spin" /> : <ShieldAlert aria-hidden />}
-            Flip a ciphertext bit
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={pending !== null || !hasSignature}
-            onClick={() => run("signature")}
-          >
-            {pending === "signature" ? <Loader2 aria-hidden className="animate-spin" /> : <ShieldAlert aria-hidden />}
-            Flip a signature bit
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={pending !== null || !(state.canRestoreContent || state.canRestoreSignature)}
-            onClick={() => run("restore")}
-          >
-            {pending === "restore" ? <Loader2 aria-hidden className="animate-spin" /> : <RotateCcw aria-hidden />}
-            Restore the original
-          </Button>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {ATTACKS.map((attack) => (
+            <div key={attack.action} className="rounded-lg border p-3">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={pending !== null || (attack.action !== "ciphertext" && !hasSignature)}
+                onClick={() => run(attack.action)}
+              >
+                {pending === attack.action ? <Loader2 aria-hidden className="animate-spin" /> : <ShieldAlert aria-hidden />}
+                {attack.label}
+              </Button>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{attack.blurb}</p>
+              <p className="mt-1 font-mono text-[10px] text-muted-foreground">expect: {attack.expect}</p>
+            </div>
+          ))}
         </div>
+
+        <Button
+          type="button"
+          size="sm"
+          disabled={pending !== null || !(state.canRestoreContent || state.canRestoreSignature)}
+          onClick={() => run("restore")}
+        >
+          {pending === "restore" ? <Loader2 aria-hidden className="animate-spin" /> : <RotateCcw aria-hidden />}
+          Restore the original
+        </Button>
       </div>
 
       <p className="flex items-start gap-2 text-xs text-muted-foreground">

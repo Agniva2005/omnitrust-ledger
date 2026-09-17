@@ -4,10 +4,14 @@ import { ALGORITHMS, type Algorithm } from "@/lib/crypto/orchestrator";
 import { prisma } from "@/lib/db";
 import {
   restoreTamper,
+  tamperAlgorithmLabel,
   tamperCiphertext,
   tamperContent,
+  tamperKeySubstitution,
+  tamperReplay,
   tamperSignature,
   tamperState,
+  tamperTimestampSwap,
 } from "@/lib/documents/demo-tamper";
 import { uploadDocument } from "@/lib/documents/service";
 import { signDocument } from "@/lib/documents/signing";
@@ -132,5 +136,96 @@ describe("demonstration tampering", () => {
   it("refuses to restore a document that was never altered", async () => {
     const document = await signedDocument();
     await expect(restoreTamper(admin, document.id)).rejects.toThrow(/not been altered/);
+  });
+
+  it("replays a genuine signature from another document under the same certificate", async () => {
+    const other = await signedDocument();
+    const target = await signedDocument();
+
+    const state = await tamperReplay(admin, target.id);
+    expect(state.signatureAltered).toBe(true);
+    expect(state.alteration).toMatch(/^a signature replayed from /);
+    // The donor must be some other document, never this one.
+    expect(state.alteration).not.toContain(target.filename);
+    expect(other.id).not.toBe(target.id);
+
+    const version = await prisma.documentVersion.findFirstOrThrow({ where: { documentId: target.id } });
+    const donor = await prisma.signature.findFirstOrThrow({ where: { documentVersion: { documentId: { not: target.id } } }, orderBy: { signedAt: "desc" } });
+    const replayed = await prisma.signature.findUniqueOrThrow({ where: { documentVersionId: version.id } });
+    expect(Buffer.from(replayed.signatureBytes)).toEqual(Buffer.from(donor.signatureBytes));
+
+    const verdict = await verifyDocument(admin, target.id);
+    expect(verdict.outcome).toBe("INVALID");
+    // The certificate is genuine and current; only the signature covers different content.
+    expect(verdict.reason).toBe("SIGNATURE_INVALID");
+
+    await restoreTamper(admin, target.id);
+    expect((await verifyDocument(admin, target.id)).outcome).toBe("VALID");
+  }, 60_000);
+
+  it("relabelling the algorithm is caught, and the certificate's own label is restored too", async () => {
+    const document = await signedDocument();
+    const version = await prisma.documentVersion.findFirstOrThrow({ where: { documentId: document.id } });
+    const before = await prisma.signature.findUniqueOrThrow({ where: { documentVersionId: version.id }, include: { certificate: true } });
+
+    await tamperAlgorithmLabel(admin, document.id);
+    const after = await prisma.signature.findUniqueOrThrow({ where: { documentVersionId: version.id }, include: { certificate: true } });
+    expect(after.algorithm).not.toBe(before.algorithm);
+    expect(after.certificate.algorithm).not.toBe(before.certificate.algorithm);
+
+    const verdict = await verifyDocument(admin, document.id);
+    expect(verdict.outcome).toBe("INVALID");
+    expect(verdict.reason).toBe("ALGORITHM_MISMATCH");
+
+    await restoreTamper(admin, document.id);
+    const repaired = await prisma.signature.findUniqueOrThrow({ where: { documentVersionId: version.id }, include: { certificate: true } });
+    expect(repaired.algorithm).toBe(before.algorithm);
+    // Restoring only the signature would leave the certificate row still mislabelled.
+    expect(repaired.certificate.algorithm).toBe(before.certificate.algorithm);
+    expect((await verifyDocument(admin, document.id)).outcome).toBe("VALID");
+  }, 60_000);
+
+  it("attributing the signature to another certificate is caught", async () => {
+    const document = await signedDocument();
+    // A second certificate to point at; the fixture otherwise signs everything with one.
+    const other = ALGORITHMS.find((candidate) => candidate !== certificate.algorithm) ?? ALGORITHMS[0];
+    await issueCertificate({ actor: admin, algorithm: other as Algorithm });
+
+    await tamperKeySubstitution(admin, document.id);
+    const verdict = await verifyDocument(admin, document.id);
+    expect(verdict.outcome).toBe("INVALID");
+    expect(["SIGNATURE_INVALID", "ALGORITHM_MISMATCH"]).toContain(verdict.reason);
+
+    await restoreTamper(admin, document.id);
+    expect((await verifyDocument(admin, document.id)).outcome).toBe("VALID");
+  }, 60_000);
+
+  it("swapping the time-stamp is caught, or refused when there is no token to swap", async () => {
+    await signedDocument();
+    const document = await signedDocument();
+    const version = await prisma.documentVersion.findFirstOrThrow({ where: { documentId: document.id } });
+    const signature = await prisma.signature.findUniqueOrThrow({ where: { documentVersionId: version.id } });
+
+    // Time-stamping needs a TSA; where the fixture has none, the refusal is the correct behaviour.
+    if (!signature.timestampToken) {
+      await expect(tamperTimestampSwap(admin, document.id)).rejects.toThrow(/no time-stamp/);
+      return;
+    }
+
+    await tamperTimestampSwap(admin, document.id);
+    const verdict = await verifyDocument(admin, document.id);
+    expect(verdict.outcome).toBe("INVALID");
+    expect(verdict.reason).toBe("TIMESTAMP_INVALID");
+
+    await restoreTamper(admin, document.id);
+    expect((await verifyDocument(admin, document.id)).outcome).toBe("VALID");
+  }, 60_000);
+
+  it("refuses the new attacks to a role without the capability", async () => {
+    const document = await signedDocument();
+    await expect(tamperReplay(signer, document.id)).rejects.toThrow(AuthorizationError);
+    await expect(tamperAlgorithmLabel(signer, document.id)).rejects.toThrow(AuthorizationError);
+    await expect(tamperKeySubstitution(signer, document.id)).rejects.toThrow(AuthorizationError);
+    await expect(tamperTimestampSwap(signer, document.id)).rejects.toThrow(AuthorizationError);
   });
 });
