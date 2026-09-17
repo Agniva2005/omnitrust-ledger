@@ -18,6 +18,7 @@ export type Capability =
   | "document:upload"
   | "document:sign"
   | "document:verify"
+  | "document:share"
   | "certificate:read"
   | "certificate:issue"
   | "certificate:revoke"
@@ -34,6 +35,8 @@ const CAPABILITIES: Record<Capability, readonly Role[]> = {
   "document:upload": ["ADMIN", "SIGNER"],
   "document:sign": ["ADMIN", "SIGNER"],
   "document:verify": ["ADMIN", "SIGNER", "VERIFIER"],
+  // Sharing gives someone outside the installation sight of a document, so it follows upload.
+  "document:share": ["ADMIN", "SIGNER"],
   "certificate:read": ROLES,
   "certificate:issue": ["ADMIN", "SIGNER"],
   "certificate:revoke": ["ADMIN"],

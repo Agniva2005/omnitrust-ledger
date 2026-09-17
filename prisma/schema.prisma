@@ -29,6 +29,7 @@ model User {
   auditEntries AuditLogEntry[]
   auditCheckpoints AuditCheckpoint[]
   anchorBatches    AnchorBatch[]
+  documentShares DocumentShare[]
 }
 
 /// Append-only hash chain: entryHash = SHA256(prevHash + canonical serialisation of
@@ -244,6 +245,7 @@ model Document {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   versions    DocumentVersion[]
+  shares      DocumentShare[]
 
   @@index([ownerUserId])
   @@index([currentHash])
@@ -290,4 +292,28 @@ model Signature {
 
   @@unique([documentVersionId])
   @@index([certificateId])
+}
+
+/// A consent-based, revocable link letting someone without an account verify one document
+/// version. Only a hash of the token is stored, so a copy of this table grants access to
+/// nothing: the link itself exists only where the holder put it.
+model DocumentShare {
+  id              String    @id @default(cuid())
+  documentId      String
+  document        Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  versionNumber   Int
+  /// SHA-256 of the share token, hex. The token is never stored.
+  tokenHash       String    @unique
+  /// Who the holder says this was shared with, recorded for their own trail.
+  audience        String
+  note            String?
+  createdByUserId String
+  createdBy       User      @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  accessCount     Int       @default(0)
+  lastAccessedAt  DateTime?
+
+  @@index([documentId])
 }

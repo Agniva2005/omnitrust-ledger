@@ -24,13 +24,17 @@ export function safeFilename(filename: string): string {
   return cleaned || "document";
 }
 
+/**
+ * `actor` is null only for a share link: the token is the authorisation there, and the visitor
+ * has no account, so the export is recorded without one rather than against a fabricated user.
+ */
 export async function exportSignedDocument(
-  actor: Actor,
+  actor: Actor | null,
   documentId: string,
   part: ExportPart,
   versionNumber?: number,
 ): Promise<ExportedFile> {
-  requireCapability(actor, "document:read");
+  if (actor) requireCapability(actor, "document:read");
 
   const document = await prisma.document.findUnique({
     where: { id: documentId },
@@ -82,7 +86,7 @@ export async function exportSignedDocument(
   }
 
   await appendAuditEntry({
-    actorUserId: actor.userId,
+    actorUserId: actor?.userId ?? null,
     action: "DOCUMENT_EXPORTED",
     targetType: "Document",
     targetId: document.id,

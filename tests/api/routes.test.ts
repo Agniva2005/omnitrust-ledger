@@ -29,6 +29,9 @@ const sign = await import("@/app/api/documents/[id]/sign/route");
 const verify = await import("@/app/api/documents/[id]/verify/route");
 const demoTamper = await import("@/app/api/documents/[id]/demo-tamper/route");
 const evidence = await import("@/app/api/documents/[id]/evidence/route");
+const shares = await import("@/app/api/documents/[id]/shares/route");
+const shareItem = await import("@/app/api/shares/[shareId]/route");
+const shareEvidence = await import("@/app/api/share/[token]/evidence/route");
 const certificates = await import("@/app/api/certificates/route");
 const revoke = await import("@/app/api/certificates/[id]/revoke/route");
 const certificateEvidence = await import("@/app/api/certificates/[id]/evidence/route");
@@ -253,6 +256,47 @@ describe("signing and verification", () => {
     expect(archive.includes(Buffer.from("verification.json"))).toBe(true);
     // The pack must never carry key material.
     expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
+  }, 60_000);
+
+  it("shares: minted once, openable without a session, dead the moment it is withdrawn", async () => {
+    const created = await uploadAsSigner();
+    const certificate = await issueAs("signer@demo");
+    await as("signer@demo");
+    await sign.POST(json(`/api/documents/${created.id}/sign`, "POST", { certificateId: certificate.id }), params(created.id));
+
+    const url = `/api/documents/${created.id}/shares`;
+    await as("viewer@demo");
+    expect((await read(await shares.POST(json(url, "POST", { audience: "Acme" }), params(created.id)))).status).toBe(403);
+
+    await as("signer@demo");
+    expect((await read(await shares.POST(json(url, "POST", {}), params(created.id)))).status).toBe(400);
+
+    const minted = await read(await shares.POST(json(url, "POST", { audience: "Acme Ltd", days: 7 }), params(created.id)));
+    expect(minted.status).toBe(201);
+    const token = minted.body.token as string;
+    expect(token.length).toBeGreaterThanOrEqual(43);
+
+    // The whole point: no session at all, and the evidence still comes back.
+    await as(null);
+    const pack = await shareEvidence.GET(new Request(`${BASE}/x`), { params: Promise.resolve({ token }) });
+    expect(pack.status).toBe(200);
+    expect(pack.headers.get("content-type")).toBe("application/zip");
+    const archive = Buffer.from(await pack.arrayBuffer());
+    expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
+
+    const unknown = await shareEvidence.GET(new Request(`${BASE}/x`), { params: Promise.resolve({ token: "nope" }) });
+    expect(unknown.status).toBe(404);
+
+    await as("signer@demo");
+    const listed = await read(await shares.GET(new Request(`${BASE}${url}`), params(created.id)));
+    expect(listed.body.shares[0].state).toBe("ACTIVE");
+
+    const withdrawn = await read(await shareItem.DELETE(new Request(`${BASE}/x`), { params: Promise.resolve({ shareId: listed.body.shares[0].id }) }));
+    expect(withdrawn.body.share.state).toBe("WITHDRAWN");
+
+    await as(null);
+    const afterWithdrawal = await shareEvidence.GET(new Request(`${BASE}/x`), { params: Promise.resolve({ token }) });
+    expect(afterWithdrawal.status).toBe(404);
   }, 60_000);
 
   it("GET /api/security-lab/evaluation: 403 below ADMIN, and an archive naming what was never run", async () => {

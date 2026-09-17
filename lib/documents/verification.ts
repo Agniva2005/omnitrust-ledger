@@ -178,6 +178,13 @@ export type VerifyOptions = {
    * break verification at every earlier instant.
    */
   issueCrlIfStale?: boolean;
+  /**
+   * Set only by the public share page. Possession of a valid, unexpired, unwithdrawn share
+   * token is the authorisation there, so the capability check does not apply and the resulting
+   * audit entry names no actor — the visitor has no account and the log should not imply one.
+   * The share's own access entry records who was given the link.
+   */
+  viaShareToken?: boolean;
 };
 
 const STEP: Record<StepId, string> = {
@@ -221,7 +228,7 @@ export async function verifyDocument(
   documentId: string,
   options: VerifyOptions = {},
 ): Promise<VerificationResult> {
-  requireCapability(actor, "document:verify");
+  if (!options.viaShareToken) requireCapability(actor, "document:verify");
   const now = options.at ?? new Date();
   const crlLookup = { issueIfStale: options.issueCrlIfStale ?? true };
 
@@ -561,7 +568,7 @@ export async function verifyDocument(
   }
 
   await appendAuditEntry({
-    actorUserId: actor.userId,
+    actorUserId: options.viaShareToken ? null : actor.userId,
     action: "DOCUMENT_VERIFIED",
     targetType: "Document",
     targetId: document.id,

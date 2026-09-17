@@ -1,8 +1,9 @@
-import { Download, FileCheck2, FilePlus2, FileText, Fingerprint, FlaskConical, GitBranch, Hash, Package, TerminalSquare } from "lucide-react";
+import { Download, FileCheck2, FilePlus2, FileText, Fingerprint, FlaskConical, GitBranch, Hash, Package, Share2, TerminalSquare } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { HistoryTimeline } from "@/app/(app)/documents/[id]/history-timeline";
 import { NewVersionPanel } from "@/app/(app)/documents/[id]/new-version-panel";
+import { SharePanel } from "@/app/(app)/documents/[id]/share-panel";
 import { SignPanel, type CertificateOption } from "@/app/(app)/documents/[id]/sign-panel";
 import { TamperPanel } from "@/app/(app)/documents/[id]/tamper-panel";
 import { CopyButton } from "@/components/copy-button";
@@ -26,6 +27,7 @@ import { orchestrator } from "@/lib/crypto/orchestrator";
 import { documentArtifacts } from "@/lib/documents/artifacts";
 import { tamperState } from "@/lib/documents/demo-tamper";
 import { documentHistory } from "@/lib/documents/history";
+import { listShares } from "@/lib/documents/sharing";
 import { assertDocumentState, nextStates } from "@/lib/documents/lifecycle";
 import { getDocument } from "@/lib/documents/service";
 import { signaturesForDocument } from "@/lib/documents/signing";
@@ -87,6 +89,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
 
   const history = await documentHistory(document.id);
   const artifacts = await documentArtifacts(document.id);
+  const shares = await listShares(actor, document.id);
 
   const all = orchestrator.describeAll();
   const listFormat = (items: string[], type: "conjunction" | "disjunction") => new Intl.ListFormat("en", { style: "long", type }).format(items);
@@ -309,6 +312,28 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           </Table>
         )}
       </Card>
+
+      {latestSigned && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Share2 aria-hidden className="h-4 w-4 text-primary" /> Share for verification
+            </CardTitle>
+            <CardDescription>
+              Give someone without an account a link that verifies this version and nothing else. They see the same ten
+              checks and can take the evidence away; you can withdraw it at any moment, and every use is on the record.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SharePanel
+              documentId={document.id}
+              versionNumber={latestVersion.versionNumber}
+              initialShares={shares}
+              canShare={can(actor.role, "document:share") && document.owner.email === actor.email}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

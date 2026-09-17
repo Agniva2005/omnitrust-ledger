@@ -41,6 +41,9 @@ export const AUDIT_ACTIONS = [
   "DEMO_AUDIT_RESTORED",
   "EVIDENCE_PACK_BUILT",
   "AUDIT_EXPORTED",
+  "DOCUMENT_SHARED",
+  "DOCUMENT_SHARE_ACCESSED",
+  "DOCUMENT_SHARE_REVOKED",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

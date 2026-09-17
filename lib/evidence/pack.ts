@@ -82,10 +82,17 @@ Checking it yourself
 
 export type EvidencePack = { filename: string; bytes: Buffer; outcome: string; reason: string | null };
 
-/** Builds the pack for a document version, running a real verification as part of it. */
-export async function buildEvidencePack(actor: Actor, documentId: string, versionNumber?: number): Promise<EvidencePack> {
-  requireCapability(actor, "document:read");
-  requireCapability(actor, "document:verify");
+/**
+ * Builds the pack for a document version, running a real verification as part of it.
+ *
+ * `actor` is null only for a share link, where possession of a valid, unexpired, unwithdrawn
+ * token is the authorisation and the visitor has no account to attribute the pack to.
+ */
+export async function buildEvidencePack(actor: Actor | null, documentId: string, versionNumber?: number): Promise<EvidencePack> {
+  if (actor) {
+    requireCapability(actor, "document:read");
+    requireCapability(actor, "document:verify");
+  }
 
   const document = await prisma.document.findUnique({
     where: { id: documentId },
@@ -102,7 +109,8 @@ export async function buildEvidencePack(actor: Actor, documentId: string, versio
   });
   if (!signature) throw new NotFoundError("That version has no signature, so there is nothing to evidence");
 
-  const result = await verifyDocument(actor, documentId, { versionNumber: version.versionNumber });
+  const visitor: Actor = actor ?? { userId: "", email: "", role: "VERIFIER" };
+  const result = await verifyDocument(visitor, documentId, { versionNumber: version.versionNumber, viaShareToken: actor === null });
   const content = await exportSignedDocument(actor, documentId, "content", version.versionNumber);
   const certificate = await exportSignedDocument(actor, documentId, "certificate", version.versionNumber);
   const ca = await getRootCa();
@@ -157,7 +165,7 @@ export async function buildEvidencePack(actor: Actor, documentId: string, versio
   const bytes = createZip(entries, builtAt);
 
   await appendAuditEntry({
-    actorUserId: actor.userId,
+    actorUserId: actor?.userId ?? null,
     action: "EVIDENCE_PACK_BUILT",
     targetType: "Document",
     targetId: document.id,
