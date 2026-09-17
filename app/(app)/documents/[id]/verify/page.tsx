@@ -11,6 +11,7 @@ import { getSession } from "@/lib/auth/session";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 import { getDocument } from "@/lib/documents/service";
 import { signaturesForDocument } from "@/lib/documents/signing";
+import { verificationMoments } from "@/lib/documents/timeline";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,9 @@ export default async function VerifyPage({
   const latest = signatures.find(
     (signature) => signature.documentVersion.versionNumber === targetVersion,
   );
+
+  // The instants at which this signature's verdict could differ, taken from its own record.
+  const moments = latest ? await verificationMoments(document.id, targetVersion) : [];
 
   const versionSwitcher =
     document.versions.length > 1 ? (
@@ -151,7 +155,7 @@ export default async function VerifyPage({
 
           <div className="min-w-0 space-y-4 2xl:col-start-1 2xl:row-start-1">
             {versionSwitcher}
-            <VerifyRunner documentId={document.id} version={targetVersion} />
+            <VerifyRunner documentId={document.id} version={targetVersion} moments={moments} />
           </div>
         </div>
       )}

@@ -85,14 +85,26 @@ function TrustRow({ label, value }: { label: string; value: string | null }) {
   );
 }
 
-export function VerifyRunner({ documentId, version }: { documentId: string; version?: number }) {
+export type VerificationMoment = { id: string; label: string; at: string; detail: string };
+
+export function VerifyRunner({
+  documentId,
+  version,
+  moments = [],
+}: {
+  documentId: string;
+  version?: number;
+  moments?: VerificationMoment[];
+}) {
   const router = useRouter();
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [notSigned, setNotSigned] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // null means the present: the verifier's own default rather than a chosen instant.
+  const [at, setAt] = useState<string | null>(null);
 
-  async function run() {
+  async function run(instant: string | null = at) {
     setPending(true);
     setError(null);
     setResult(null);
@@ -101,7 +113,10 @@ export function VerifyRunner({ documentId, version }: { documentId: string; vers
     const response = await fetch(`/api/documents/${documentId}/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(version === undefined ? {} : { version }),
+      body: JSON.stringify({
+        ...(version === undefined ? {} : { version }),
+        ...(instant === null ? {} : { at: instant }),
+      }),
     });
     const body = await response.json().catch(() => ({}));
 
@@ -129,12 +144,60 @@ export function VerifyRunner({ documentId, version }: { documentId: string; vers
             judged at the time a trusted time-stamp proves the signature existed.
           </CardDescription>
         </div>
-        <Button onClick={run} disabled={pending} size="lg">
+        <Button onClick={() => run()} disabled={pending} size="lg">
           {pending ? <Loader2 aria-hidden className="animate-spin" /> : result ? <RotateCcw aria-hidden /> : <Play aria-hidden />}
           {pending ? "Running verification..." : result ? "Run again" : "Run verification"}
         </Button>
       </CardHeader>
       <CardContent className="space-y-5">
+        {moments.length > 0 && (
+          <div className="rounded-xl border bg-muted/20 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-medium">Ask at a different moment</h3>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {at === null ? "now" : `${at.replace("T", " ").slice(0, 19)}Z`}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              The bytes, the signature and the certificate do not change. Only the instant the verifier judges revocation
+              and validity at does, and the answer is recomputed for real each time. Asking about another moment reads the
+              revocation lists the CA had already published by then; it never issues one.
+            </p>
+            <ol className="mt-3 flex flex-wrap gap-2">
+              {moments.map((moment) => {
+                const selected = moment.id === "now" ? at === null : at === moment.at;
+                const instant = moment.id === "now" ? null : moment.at;
+                return (
+                  <li key={moment.id}>
+                    <button
+                      type="button"
+                      title={moment.detail}
+                      aria-pressed={selected}
+                      disabled={pending}
+                      onClick={() => {
+                        setAt(instant);
+                        void run(instant);
+                      }}
+                      className={cn(
+                        "rounded-lg border px-2.5 py-1.5 text-left transition-colors disabled:opacity-60",
+                        selected ? "border-primary bg-primary/10" : "bg-card hover:bg-accent",
+                      )}
+                    >
+                      <span className="block text-xs font-medium">{moment.label}</span>
+                      <span className="block font-mono text-[10px] text-muted-foreground">{moment.at.replace("T", " ").slice(0, 19)}Z</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+            {at !== null && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing the answer as at the selected moment. Choose <span className="font-medium">Now</span> to return to the present.
+              </p>
+            )}
+          </div>
+        )}
+
         {notSigned && (
           <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
             This document has no signature yet, so there is nothing to verify.

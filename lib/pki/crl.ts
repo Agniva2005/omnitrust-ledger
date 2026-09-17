@@ -221,9 +221,32 @@ export type RevocationStatus = {
   revocation: RevocationRecord | null;
 };
 
+export type RevocationLookup = {
+  /**
+   * Whether a fresh CRL may be issued when none covers `at`. True for the present, which is
+   * ordinary operation. False when asking what the answer *would have been* at some other
+   * instant: a hypothetical question must not mint a real CRL, and a future-dated one would
+   * then become the newest list and break verification for every earlier time.
+   */
+  issueIfStale?: boolean;
+};
+
+/** The newest CRL the CA had published by `at`, or null if it had published none yet. */
+async function crlPublishedBy(at: Date): Promise<RevocationList | null> {
+  return prisma.revocationList.findFirst({ where: { thisUpdate: { lte: at } }, orderBy: { crlNumber: "desc" } });
+}
+
 /** Revocation status of one serial number, from the newest authenticated CRL. */
-export async function revocationStatus(serialNumber: string, at: Date = new Date()): Promise<RevocationStatus> {
-  const list = await currentCrl(at);
+export async function revocationStatus(
+  serialNumber: string,
+  at: Date = new Date(),
+  { issueIfStale = true }: RevocationLookup = {},
+): Promise<RevocationStatus> {
+  const list = issueIfStale ? await currentCrl(at) : await crlPublishedBy(at);
+  if (!list) {
+    throw new RevocationStatusUnavailableError(`the CA had published no revocation list by ${at.toISOString()}`);
+  }
+  // Currency is still judged at `at`: a list that had lapsed by then is not evidence for it.
   const crl = await authenticateCrl(list.der, at);
   const entry = crl.entries.find((candidate) => candidate.serialNumber === normaliseSerial(serialNumber));
   return {

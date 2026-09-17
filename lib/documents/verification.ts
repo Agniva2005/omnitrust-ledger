@@ -170,6 +170,14 @@ export type VerifyOptions = {
   at?: Date;
   /** Verify a specific version instead of the latest. */
   versionNumber?: number;
+  /**
+   * Whether a revocation list may be published if none covers `at`. True by default, which is
+   * ordinary operation and lets a fresh installation issue its first list while verifying.
+   * Callers asking what the answer *would have been* at some other instant must pass false: a
+   * hypothetical question that published a future-dated list would make it the newest one and
+   * break verification at every earlier instant.
+   */
+  issueCrlIfStale?: boolean;
 };
 
 const STEP: Record<StepId, string> = {
@@ -215,6 +223,7 @@ export async function verifyDocument(
 ): Promise<VerificationResult> {
   requireCapability(actor, "document:verify");
   const now = options.at ?? new Date();
+  const crlLookup = { issueIfStale: options.issueCrlIfStale ?? true };
 
   const document = await prisma.document.findUnique({
     where: { id: documentId },
@@ -312,6 +321,7 @@ export async function verifyDocument(
         signature.timestampToken,
         sha256(signature.signatureBytes),
         now,
+        crlLookup,
       );
       trust.timestampAuthority = timestamp.authority;
       if (timestamp.status === "VALID" && timestamp.genTime) {
@@ -366,7 +376,7 @@ export async function verifyDocument(
     // --- Step 6: revocation, from the CA's signed CRL, under the timestamp-aware policy ---
     if (certificate) {
       try {
-        const status = await revocationStatus(certificate.serialNumber, now);
+        const status = await revocationStatus(certificate.serialNumber, now, crlLookup);
         revocationDecision = evaluateRevocation(status.revocation, proof);
         trust.revocationDecision = revocationDecision.code;
         trust.revocation = status.revocation

@@ -70,7 +70,7 @@ import {
   singleAttributeValue,
   sortAttributes,
 } from "@/lib/pki/cms";
-import { RevocationStatusUnavailableError, revocationStatus } from "@/lib/pki/crl";
+import { RevocationStatusUnavailableError, revocationStatus, type RevocationLookup } from "@/lib/pki/crl";
 import { tsaAlgorithm } from "@/lib/pki/policy";
 import { evaluateRevocation } from "@/lib/pki/revocation";
 
@@ -337,6 +337,8 @@ export async function verifyTimestampToken(
    * CRL dated after that instant, which the caller's own check then rejects as not current.
    */
   at: Date = new Date(),
+  /** Forwarded to the CRL lookup: a hypothetical instant must not mint a list. */
+  lookup: RevocationLookup = {},
 ): Promise<TimestampVerification> {
   const checks: TimestampCheck[] = [];
   const result = {
@@ -486,7 +488,7 @@ export async function verifyTimestampToken(
 
   // --- The authority's revocation status ---
   try {
-    const status = await revocationStatus(authority!.serialNumber, at);
+    const status = await revocationStatus(authority!.serialNumber, at, lookup);
     const decision = evaluateRevocation(status.revocation, {
       time: tstInfo.genTime,
       accuracyMs: result.accuracyMs,
