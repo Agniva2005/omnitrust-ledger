@@ -40,6 +40,7 @@ export const AUDIT_ACTIONS = [
   "DEMO_AUDIT_TAMPERED",
   "DEMO_AUDIT_RESTORED",
   "EVIDENCE_PACK_BUILT",
+  "AUDIT_EXPORTED",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

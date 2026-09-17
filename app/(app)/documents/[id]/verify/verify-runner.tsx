@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, CircleCheck, CircleHelp, CircleX, Loader2, Minus, Play, RotateCcw } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleHelp, CircleX, Loader2, Minus, Package, Play, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { EvidenceChain } from "@/components/evidence-chain";
@@ -164,6 +164,12 @@ export function VerifyRunner({ documentId, version }: { documentId: string; vers
                 </div>
                 <p className="text-sm text-foreground/80">{display.summary}</p>
                 <p className="text-sm text-foreground">{result.explanation}</p>
+                <a
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-current/30 px-2.5 py-1 text-xs font-medium hover:bg-current/10"
+                  href={`/api/documents/${documentId}/evidence${version === undefined ? "" : `?version=${version}`}`}
+                >
+                  <Package aria-hidden className="h-3.5 w-3.5" /> Download the evidence
+                </a>
               </div>
             </div>
 

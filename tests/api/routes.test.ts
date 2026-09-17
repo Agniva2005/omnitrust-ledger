@@ -33,6 +33,7 @@ const certificates = await import("@/app/api/certificates/route");
 const revoke = await import("@/app/api/certificates/[id]/revoke/route");
 const auditVerify = await import("@/app/api/audit/verify/route");
 const auditTamper = await import("@/app/api/audit/demo-tamper/route");
+const auditExport = await import("@/app/api/audit/export/route");
 const auditCheckpoints = await import("@/app/api/audit/checkpoints/route");
 const anchoring = await import("@/app/api/anchoring/route");
 const anchorBatches = await import("@/app/api/anchoring/batches/route");
@@ -249,6 +250,22 @@ describe("signing and verification", () => {
     expect(archive.includes(Buffer.from("README.txt"))).toBe(true);
     expect(archive.includes(Buffer.from("verification.json"))).toBe(true);
     // The pack must never carry key material.
+    expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
+  }, 60_000);
+
+  it("GET /api/audit/export: 403 for a viewer, and a readable archive for a verifier", async () => {
+    await as("viewer@demo");
+    expect((await read(await auditExport.GET())).status).toBe(403);
+
+    await as("verifier@demo");
+    const response = await auditExport.GET();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+
+    const archive = Buffer.from(await response.arrayBuffer());
+    expect(archive.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    expect(archive.includes(Buffer.from("entries.json"))).toBe(true);
+    expect(archive.includes(Buffer.from("integrity.json"))).toBe(true);
     expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
   }, 60_000);
 

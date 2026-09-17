@@ -1,16 +1,18 @@
-import { ScrollText } from "lucide-react";
+import { Download, ScrollText } from "lucide-react";
 import { redirect } from "next/navigation";
 import { AuditTamperPanel } from "@/app/(app)/audit/audit-tamper-panel";
 import { IntegrityChecker } from "@/app/(app)/audit/integrity-checker";
 import { PageHeader } from "@/components/page-header";
 import { AuditTimeline } from "@/components/audit-timeline";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { auditTamperState } from "@/lib/audit/demo-tamper";
 import { auditEntryCount, computeEntryHash, listAuditEntries } from "@/lib/audit/log";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
 import { listAuditCheckpoints } from "@/lib/pki/audit-checkpoints";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,13 @@ export default async function AuditPage() {
         icon={ScrollText}
         eyebrow="Integrity"
         title="Audit log"
+        actions={
+          can(actor.role, "audit:verify") ? (
+            <a className={cn(buttonVariants({ variant: "outline" }))} href="/api/audit/export">
+              <Download aria-hidden /> Export the log
+            </a>
+          ) : null
+        }
         description="Append-only and hash-chained: each entry stores SHA-256 of the previous entry's hash concatenated with its own fields, so altering any row breaks the chain from that point on. Signed, time-stamped checkpoints commit to the chain head so that a log whose hashes were recomputed after an edit, or whose newest entries were deleted, is detected too."
       />
 
