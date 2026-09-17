@@ -200,12 +200,14 @@ async function main() {
   console.log(`Environment: ${output.environment.cpu}, Node ${output.environment.node}, OpenSSL ${output.environment.openssl}\n`);
 
   const pad = (value: string, width: number) => value.padEnd(width);
-  console.log(`${pad("Algorithm", 18)}${pad("sign median", 14)}${pad("sign 95% CI (mean)", 24)}${pad("verify median", 15)}sig bytes`);
+  // Widened to the longest name present: a fixed width ran the hybrid's name into its first number.
+  const nameWidth = Math.max(18, ...results.map((result) => result.displayName.length + 2));
+  console.log(`${pad("Algorithm", nameWidth)}${pad("sign median", 14)}${pad("sign 95% CI (mean)", 24)}${pad("verify median", 15)}sig bytes`);
   for (const result of results) {
     const first = result.payloads[0];
     const ci = first.sign.ci95Ms ? `${first.sign.ci95Ms[0].toFixed(3)}-${first.sign.ci95Ms[1].toFixed(3)} ms` : "n/a";
     console.log(
-      pad(result.displayName, 18) +
+      pad(result.displayName, nameWidth) +
         pad(`${first.sign.medianMs.toFixed(3)} ms`, 14) +
         pad(ci, 24) +
         pad(`${first.verify.medianMs.toFixed(3)} ms`, 15) +
