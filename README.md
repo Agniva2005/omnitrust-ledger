@@ -211,7 +211,7 @@ npm run export:signature -- audit-report-ed25519.txt
 | `npm run dev` | Development server on port 3000 |
 | `npm run setup` | Generate `.env` and keys, migrate, seed. Idempotent |
 | `npm test` | Full test suite |
-| `npm run ci` | Every quality gate offline: dependencies, schema, contract artifact, lint, type-check, boundary, unit/integration/security tests, build, benchmark smoke run |
+| `npm run ci` | Every quality gate offline: dependencies, schema, contract artifact, lint, type-check, boundary, unit/integration/security tests, build, benchmark smoke run. **Stop `npm run dev` first** — it runs `next build`, which rewrites `.next` underneath a running dev server and leaves it serving 500s until it is restarted |
 | `npm run e2e` | End-to-end regression against an isolated production installation (run `npm run build` first) |
 | `npm run build` | Production build |
 | `npm run benchmark` | Measure sign/verify/hash/key generation per algorithm; `-- --smoke` for a quick run |
