@@ -9,7 +9,9 @@ import {
   merkleLeafHash,
   merkleNodeHash,
   merkleRoot,
+  merkleTree,
   verifyMerkleInclusion,
+  type MerkleNode,
 } from "@/lib/crypto/merkle";
 
 const LEAVES = ["", "00", "10", "2021", "3031", "40414243", "5051525354555657", "606162636465666768696a6b6c6d6e6f"].map(
@@ -129,5 +131,43 @@ describe("inclusion proofs (RFC 6962 PATH, verified per RFC 9162 section 2.1.3.2
       expect(verifyMerkleInclusion({ ...claim, proof: [Buffer.alloc(31), ...proof.slice(1)] })).toBe(false);
       expect(() => merkleInclusionProof(leaves, 7)).toThrow(RangeError);
     });
+  });
+});
+
+describe("the tree as drawn", () => {
+  const leaves = Array.from({ length: 13 }, (_, index) => Buffer.from([index]));
+
+  function rootOf(node: MerkleNode): string {
+    return node.hash;
+  }
+
+  function leavesOf(node: MerkleNode): number[] {
+    return node.kind === "leaf" ? [node.index] : [...leavesOf(node.left), ...leavesOf(node.right)];
+  }
+
+  it("is empty only for an empty tree", () => {
+    expect(merkleTree([])).toBeNull();
+    expect(merkleTree([Buffer.from([0])])).toMatchObject({ kind: "leaf", index: 0 });
+  });
+
+  it("produces the same root as merkleRoot at every size, balanced or not", () => {
+    // If these ever disagree, the picture on screen is not the computation that was anchored.
+    for (let size = 1; size <= leaves.length; size += 1) {
+      const subset = leaves.slice(0, size);
+      expect(rootOf(merkleTree(subset)!), `tree of ${size}`).toBe(merkleRoot(subset).toString("hex"));
+    }
+  });
+
+  it("carries every leaf exactly once, in order", () => {
+    expect(leavesOf(merkleTree(leaves)!)).toEqual(Array.from({ length: 13 }, (_, index) => index));
+  });
+
+  it("gives each leaf node the leaf hash of its own data", () => {
+    const tree = merkleTree(leaves)!;
+    const found = (node: MerkleNode, index: number): MerkleNode | null =>
+      node.kind === "leaf" ? (node.index === index ? node : null) : (found(node.left, index) ?? found(node.right, index));
+    for (let index = 0; index < leaves.length; index += 1) {
+      expect(found(tree, index)!.hash).toBe(merkleLeafHash(leaves[index]).toString("hex"));
+    }
   });
 });

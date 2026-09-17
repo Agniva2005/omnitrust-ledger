@@ -1,4 +1,5 @@
 import { Link2 } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AnchorButton } from "@/app/(app)/anchoring/anchor-button";
 import { PageHeader } from "@/components/page-header";
@@ -113,7 +114,11 @@ export default async function AnchoringPage() {
               <TableBody>
                 {overview.batches.map((batch) => (
                   <TableRow key={batch.id}>
-                    <TableCell className="font-mono text-xs">{batch.root.slice(0, 16)}...</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      <Link href={`/anchoring/${batch.id}`} className="hover:text-foreground hover:underline" title="Open the Merkle tree for this batch">
+                        {batch.root.slice(0, 16)}...
+                      </Link>
+                    </TableCell>
                     <TableCell>{batch.leafCount}</TableCell>
                     <TableCell>{batch.blockNumber}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{batch.blockTimestamp}</TableCell>

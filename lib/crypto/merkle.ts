@@ -56,6 +56,33 @@ export function merkleInclusionProof(leaves: readonly Uint8Array[], index: numbe
   return pathOfHashes(index, leaves.map(merkleLeafHash));
 }
 
+export type MerkleNode =
+  | { kind: "leaf"; index: number; hash: string }
+  | { kind: "node"; hash: string; left: MerkleNode; right: MerkleNode };
+
+function nodeOfHashes(hashes: Buffer[], offset: number): MerkleNode {
+  if (hashes.length === 1) return { kind: "leaf", index: offset, hash: hashes[0].toString("hex") };
+  const k = splitPoint(hashes.length);
+  const left = nodeOfHashes(hashes.slice(0, k), offset);
+  const right = nodeOfHashes(hashes.slice(k), offset + k);
+  return {
+    kind: "node",
+    hash: merkleNodeHash(Buffer.from(left.hash, "hex"), Buffer.from(right.hash, "hex")).toString("hex"),
+    left,
+    right,
+  };
+}
+
+/**
+ * The whole tree, so it can be drawn. Same construction as merkleRoot, kept beside it rather
+ * than rebuilt elsewhere: a picture of a tree that did not match the root would be worse than
+ * no picture. Returns null for an empty tree, which has a root but no nodes.
+ */
+export function merkleTree(leaves: readonly Uint8Array[]): MerkleNode | null {
+  if (leaves.length === 0) return null;
+  return nodeOfHashes(leaves.map(merkleLeafHash), 0);
+}
+
 export type InclusionClaim = {
   /** The leaf data, not its hash. */
   leaf: Uint8Array;

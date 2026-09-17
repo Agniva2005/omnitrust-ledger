@@ -22,11 +22,11 @@ import {
   readAnchor,
   submitRoot,
 } from "@/lib/anchoring/chain";
-import { ConflictError } from "@/lib/api";
+import { ConflictError, NotFoundError } from "@/lib/api";
 import { appendAuditEntry } from "@/lib/audit/log";
 import { requireCapability, type Actor } from "@/lib/auth/rbac";
 import { sha256Hex } from "@/lib/crypto/hash";
-import { merkleInclusionProof, merkleRoot, verifyMerkleInclusion } from "@/lib/crypto/merkle";
+import { merkleInclusionProof, merkleRoot, merkleTree, verifyMerkleInclusion, type MerkleNode } from "@/lib/crypto/merkle";
 import { prisma } from "@/lib/db";
 
 export const ANCHOR_KINDS = ["SIGNATURE", "AUDIT_CHECKPOINT"] as const;
@@ -408,5 +408,116 @@ export async function anchoringOverview(actor: Actor) {
       onCurrentChain: chain.reachable && batch.contract.genesisHash === chain.genesisHash,
       createdBy: batch.createdBy?.email ?? null,
     })),
+  };
+}
+
+export type BatchLeaf = { index: number; kind: string; targetId: string; commitment: string; label: string };
+
+export type BatchDetail = {
+  batch: {
+    id: string;
+    root: string;
+    leafCount: number;
+    txHash: string;
+    blockNumber: number;
+    blockTimestamp: string;
+    chainId: number;
+    contractAddress: string;
+    createdBy: string | null;
+  };
+  leaves: BatchLeaf[];
+  /** The tree rebuilt from the stored leaves, so the drawing is the computation, not an illustration. */
+  tree: MerkleNode | null;
+  rebuiltRoot: string | null;
+  rootMatches: boolean;
+  /** The audit path for the selected leaf, and whether it verifies against the stored root. */
+  selected: { index: number; proof: string[]; verifies: boolean } | null;
+  onChain:
+    | { reachable: true; codeMatches: boolean; anchoredAtBlock: string; event: { leafCount: number; blockNumber: string; timestamp: string; txHash: string } | null }
+    | { reachable: false; reason: string };
+};
+
+/** What a target is called on screen, so a leaf is not just an opaque commitment. */
+async function labelFor(kind: string, targetId: string): Promise<string> {
+  if (kind === "SIGNATURE") {
+    const signature = await prisma.signature.findUnique({
+      where: { id: targetId },
+      include: { documentVersion: { include: { document: { select: { filename: true } } } } },
+    });
+    return signature ? `Signature on ${signature.documentVersion.document.filename} v${signature.documentVersion.versionNumber}` : "Signature (removed)";
+  }
+  const checkpoint = await prisma.auditCheckpoint.findUnique({ where: { id: targetId } });
+  return checkpoint ? `Audit checkpoint at sequence ${checkpoint.seq}` : "Audit checkpoint (removed)";
+}
+
+/** One batch, rebuilt from its stored leaves and checked against the chain. */
+export async function batchDetail(actor: Actor, batchId: string, selectedIndex?: number): Promise<BatchDetail> {
+  requireCapability(actor, "anchor:read");
+
+  const batch = await prisma.anchorBatch.findUnique({
+    where: { id: batchId },
+    include: { contract: true, createdBy: { select: { email: true } }, leaves: { orderBy: { index: "asc" } } },
+  });
+  if (!batch) throw new NotFoundError("Anchor batch not found");
+
+  const leaves: BatchLeaf[] = [];
+  for (const leaf of batch.leaves) {
+    leaves.push({ index: leaf.index, kind: leaf.kind, targetId: leaf.targetId, commitment: leaf.commitment, label: await labelFor(leaf.kind, leaf.targetId) });
+  }
+
+  const contiguous = leaves.length === batch.leafCount && leaves.every((leaf, index) => leaf.index === index);
+  const buffers = leaves.map((leaf) => Buffer.from(leaf.commitment, "hex"));
+  const tree = contiguous ? merkleTree(buffers) : null;
+  const rebuiltRoot = contiguous ? merkleRoot(buffers).toString("hex") : null;
+
+  let selected: BatchDetail["selected"] = null;
+  if (contiguous && selectedIndex !== undefined && selectedIndex >= 0 && selectedIndex < leaves.length) {
+    const proof = merkleInclusionProof(buffers, selectedIndex);
+    selected = {
+      index: selectedIndex,
+      proof: proof.map((node) => node.toString("hex")),
+      verifies: verifyMerkleInclusion({
+        leaf: buffers[selectedIndex],
+        index: selectedIndex,
+        treeSize: leaves.length,
+        proof,
+        root: Buffer.from(batch.root, "hex"),
+      }),
+    };
+  }
+
+  let onChain: BatchDetail["onChain"];
+  try {
+    const read = await readAnchor(batch.contract.address as Address, `0x${batch.root}` as Hex);
+    onChain = {
+      reachable: true,
+      codeMatches: read.codeMatches,
+      anchoredAtBlock: read.anchoredAtBlock.toString(),
+      event: read.event
+        ? { leafCount: read.event.leafCount, blockNumber: read.event.blockNumber.toString(), timestamp: read.event.timestamp.toISOString(), txHash: read.event.txHash }
+        : null,
+    };
+  } catch (error) {
+    onChain = { reachable: false, reason: error instanceof Error ? error.message : "The chain could not be reached" };
+  }
+
+  return {
+    batch: {
+      id: batch.id,
+      root: batch.root,
+      leafCount: batch.leafCount,
+      txHash: batch.txHash,
+      blockNumber: batch.blockNumber,
+      blockTimestamp: batch.blockTimestamp.toISOString(),
+      chainId: batch.contract.chainId,
+      contractAddress: batch.contract.address,
+      createdBy: batch.createdBy?.email ?? null,
+    },
+    leaves,
+    tree,
+    rebuiltRoot,
+    rootMatches: rebuiltRoot === batch.root,
+    selected,
+    onChain,
   };
 }
