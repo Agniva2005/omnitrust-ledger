@@ -1,4 +1,4 @@
-import { ShieldCheck } from "lucide-react";
+import { Download, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { IssueCertificateForm } from "@/app/(app)/certificates/issue-form";
@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { SecurityClassBadge } from "@/components/security-class-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
+import { cn } from "@/lib/utils";
 import { orchestrator } from "@/lib/crypto/orchestrator";
 import { getRootCa } from "@/lib/pki/ca";
 import { listCertificates, parseCertificate } from "@/lib/pki/certificates";
@@ -64,6 +66,17 @@ export default async function CertificatesPage() {
           </div>
           <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{ca ? ca.name.replace(/,(?=\S)/g, ", ") : "Not created yet. Run npm run setup."}</p>
           {ca && <p className="text-xs text-muted-foreground">The CA private key is encrypted at rest with a key stored in a local file, not an HSM or KMS.</p>}
+          {ca && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {/* The two artefacts an outside checker needs: the trust anchor and the revocation list. */}
+              <a className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 px-2 text-xs")} href="/api/pki/ca?format=pem">
+                <Download aria-hidden /> CA certificate (.pem)
+              </a>
+              <a className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 px-2 text-xs")} href="/api/pki/crl">
+                <Download aria-hidden /> Current CRL (.crl)
+              </a>
+            </div>
+          )}
         </div>
       </div>
 
