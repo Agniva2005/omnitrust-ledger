@@ -29,9 +29,11 @@ Then open <http://localhost:3000> and follow **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)*
 Two optional extras:
 
 ```bash
-npm run chain       # in a second terminal: a local chain for the Anchoring page
+npm run chain       # optional: the Anchoring page can also start this itself
 npm run benchmark   # measure this machine; the Benchmarks page shows nothing until you do
 ```
+
+An ADMIN can start and stop the local chain from the Anchoring page, so only `npm run dev` is needed to work through the whole application. Benchmarks are the one page that still needs its command run once.
 
 ### Demo accounts
 
@@ -56,7 +58,8 @@ All four use the password `demo1234`.
 | Revocation is published, not just a database column | `/api/pki/crl`, the certificate explorer | CA-signed CRLs with reason codes; checked by `openssl crl` in tests |
 | Signatures verify outside the application | Document page → CMS (.p7s) | `openssl cms -verify` for RSA-PSS and ECDSA; independent libraries for Ed25519 and ML-DSA |
 | The audit log is tamper-evident, including against a consistent rewrite | Audit log → Verify log integrity | Hash chain plus signed, time-stamped checkpoints |
-| Commitments can be anchored without putting data on a chain | Anchoring page | RFC 6962 Merkle roots on a local chain; only the root and leaf count are sent |
+| Commitments can be anchored without putting data on a chain | Anchoring page | RFC 6962 Merkle roots on a local chain; only the root and leaf count are sent. Open a batch to see the tree rebuilt from its commitments, an inclusion proof for any leaf, and the anchor read back off the chain |
+| The evidence stands up away from this application | Document or Verify page → Evidence pack; Audit log → Export | A ZIP of the document, signature, CMS, certificates, CRL, time-stamp and verification; the audit export documents the chain rule and was re-checked in Python over all 396 entries |
 | The controls hold against real attacks | Security Lab; [`docs/threat-model.md`](docs/threat-model.md) | 16 scenarios run in disposable sandboxes, each tied to an adversary capability; `npm run lab:evaluate` records the results as evidence |
 | The trust services themselves can migrate to post-quantum | Dashboard trust services, after setup with `PKI_CA_ALGORITHM=ML_DSA_65` | An ML-DSA-65 root CA, TSA and audit signer by installation policy; `tests/pki/pq-issuer.test.ts` cross-checks the certificates with OpenSSL 3.5 |
 | Performance is measured, with its uncertainty | Benchmarks page | n, median, mean with 95% CI, SD, outliers, recorded environment |
