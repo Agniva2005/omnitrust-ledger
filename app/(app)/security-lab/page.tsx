@@ -1,7 +1,9 @@
-import { FlaskConical } from "lucide-react";
+import { ClipboardCheck, FlaskConical } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LabConsole } from "@/app/(app)/security-lab/lab-console";
 import { PageHeader } from "@/components/page-header";
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { can } from "@/lib/auth/rbac";
 import { getSession } from "@/lib/auth/session";
@@ -31,6 +33,15 @@ export default async function SecurityLabPage() {
         icon={FlaskConical}
         eyebrow="Evaluation"
         title="Security Lab"
+        actions={
+          can(actor.role, "lab:run") ? (
+            <Button asChild>
+              <Link href="/security-lab/evaluation">
+                <ClipboardCheck aria-hidden /> Evaluation
+              </Link>
+            </Button>
+          ) : null
+        }
         description="Real attacks against real controls. Each run happens in a separate process with its own freshly created database, document storage and master key, which are deleted afterwards. A scenario can write nothing back, and reaches none of this application's database, storage or keys; the one thing that may cross is a plaintext copy of a document you choose as the subject, so an attack can be shown against your own file. Every run records its before-and-after record counts as evidence. A scenario reports whether the control held; nothing here is simulated."
       />
 

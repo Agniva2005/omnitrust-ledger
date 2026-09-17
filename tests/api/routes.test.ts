@@ -41,6 +41,7 @@ const anchorBatches = await import("@/app/api/anchoring/batches/route");
 const anchorVerify = await import("@/app/api/anchoring/verify/route");
 const anchorNode = await import("@/app/api/anchoring/node/route");
 const securityLab = await import("@/app/api/security-lab/route");
+const labEvaluation = await import("@/app/api/security-lab/evaluation/route");
 
 const BASE = "http://localhost";
 
@@ -252,6 +253,23 @@ describe("signing and verification", () => {
     expect(archive.includes(Buffer.from("verification.json"))).toBe(true);
     // The pack must never carry key material.
     expect(archive.includes(Buffer.from("PRIVATE KEY"))).toBe(false);
+  }, 60_000);
+
+  it("GET /api/security-lab/evaluation: 403 below ADMIN, and an archive naming what was never run", async () => {
+    await as("signer@demo");
+    expect((await read(await labEvaluation.GET())).status).toBe(403);
+
+    await as("admin@demo");
+    const response = await labEvaluation.GET();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+
+    const archive = Buffer.from(await response.arrayBuffer());
+    expect(archive.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    expect(archive.includes(Buffer.from("evaluation.json"))).toBe(true);
+    expect(archive.includes(Buffer.from("adversaries.json"))).toBe(true);
+    // The README must say a scenario nobody ran is not a pass, or the pack overstates itself.
+    expect(archive.includes(Buffer.from("is not a pass"))).toBe(true);
   }, 60_000);
 
   it("GET /api/certificates/:id/evidence: 404 unknown, and an archive any role may read", async () => {
