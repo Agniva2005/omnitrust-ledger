@@ -22,3 +22,11 @@ next-env.d.ts
 *.tsbuildinfo
 .vitest/
 .DS_Store
+
+# Claude Code session state. launch.json points at session-scoped temp paths that
+# exist on no other machine.
+.claude/
+
+# Generated report, slides and handouts (~11 MB of .docx/.pdf/.pptx). Rebuilt on demand
+# rather than carried in git history, which never forgets a binary.
+deliverables/
